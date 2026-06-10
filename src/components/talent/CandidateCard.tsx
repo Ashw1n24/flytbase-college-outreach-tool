@@ -18,7 +18,8 @@ interface Props {
 
 export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
   const c = candidate;
-  const { openDrawer } = useTalent();
+  const { openDrawer, isInPipeline } = useTalent();
+  const inPipeline = c.in_pipeline ?? isInPipeline(c.id);
   return (
     <div
       role="button"
@@ -32,7 +33,7 @@ export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
         selected
           ? "border-primary/40 bg-accent/40 ring-1 ring-primary/30"
           : "border-border",
-        c.in_pipeline && "border-l-4 border-l-ok",
+        inPipeline && "border-l-4 border-l-ok",
       )}
     >
       {/* Header */}
@@ -46,7 +47,7 @@ export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="truncate text-sm font-semibold">{c.full_name}</h3>
-            {c.in_pipeline && (
+            {inPipeline && (
               <span className="rounded bg-por px-1.5 py-0.5 text-[10px] font-medium text-por-fg">
                 In pipeline
               </span>

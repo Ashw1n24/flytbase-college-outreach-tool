@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { TopNav } from "@/components/talent/TopNav";
 import { FilterPanel } from "@/components/talent/FilterPanel";
 import { ResultsPanel } from "@/components/talent/ResultsPanel";
+import { SearchProvider } from "@/context/SearchContext";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -25,12 +26,14 @@ export const Route = createFileRoute("/")({
 
 function Index() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <TopNav health="fail" />
-      <div className="flex">
-        <FilterPanel />
-        <ResultsPanel />
+    <SearchProvider>
+      <div className="min-h-screen bg-background text-foreground">
+        <TopNav health="fail" />
+        <div className="flex">
+          <FilterPanel />
+          <ResultsPanel />
+        </div>
       </div>
-    </div>
+    </SearchProvider>
   );
 }

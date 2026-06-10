@@ -220,9 +220,9 @@ export const MOCK_PIPELINES: Pipeline[] = [
   },
 ];
 
-/** Initial membership: candidateId -> pipelineId. */
+/** Initial membership: candidateId -> pipelineId (matches scripts/seed.ts UUIDs). */
 export const INITIAL_MEMBERSHIP: Record<string, string> = {
-  c1: "p1",
+  "11111111-1111-4111-8111-111111111111": "p1",
 };
 
 /* ── Scraper Health Dashboard mock data ── */

@@ -30,3 +30,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python scrapers
+scrapers/.venv/
+scrapers/__pycache__/
+scrapers/**/__pycache__/
+scrapers/scraper_log.txt
+targetcomp_extracted/
+targetcomp.zip
