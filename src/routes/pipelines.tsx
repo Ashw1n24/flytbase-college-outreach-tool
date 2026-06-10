@@ -1,9 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Users, Trash2, FolderKanban } from "lucide-react";
 import { TopNav } from "@/components/talent/TopNav";
 import { Button } from "@/components/ui/button";
 import { useTalent } from "@/context/TalentContext";
+import { getCandidatesByIdsFn } from "@/lib/api/candidates.functions";
 import { EMAIL_CONFIDENCE_LABEL, TIER_META } from "@/data/talent";
 import { cn } from "@/lib/utils";
 
@@ -27,14 +29,32 @@ export const Route = createFileRoute("/pipelines")({
 
 function PipelinesPage() {
   const { pipeline: pipelineParam } = Route.useSearch();
-  const { pipelines, candidatesInPipeline, removeFromPipeline, openDrawer } =
-    useTalent();
+  const {
+    pipelines,
+    pipelineMemberIds,
+    pipelineMemberCount,
+    removeFromPipeline,
+    openDrawer,
+  } = useTalent();
   const [active, setActive] = useState(
     pipelineParam ?? pipelines[0]?.id ?? "",
   );
 
   const current = pipelines.find((p) => p.id === active) ?? pipelines[0];
-  const rows = current ? candidatesInPipeline(current.id) : [];
+  const memberIds = current ? pipelineMemberIds(current.id) : [];
+
+  const { data: rows = [], isLoading } = useQuery({
+    queryKey: ["pipeline-candidates", memberIds],
+    queryFn: () => getCandidatesByIdsFn({ data: { ids: memberIds } }),
+    enabled: memberIds.length > 0,
+  });
+
+  const rowsByMembership = useMemo(() => {
+    const byId = new Map(rows.map((c) => [c.id, c]));
+    return memberIds
+      .map((id) => byId.get(id))
+      .filter((c): c is NonNullable<typeof c> => Boolean(c));
+  }, [memberIds, rows]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -53,10 +73,9 @@ function PipelinesPage() {
           <h1 className="text-lg font-semibold tracking-tight">Pipelines</h1>
         </div>
 
-        {/* Pipeline tabs */}
         <div className="mt-4 flex flex-wrap gap-2 border-b border-border pb-3">
           {pipelines.map((p) => {
-            const count = candidatesInPipeline(p.id).length;
+            const count = pipelineMemberCount(p.id);
             return (
               <button
                 key={p.id}
@@ -81,7 +100,6 @@ function PipelinesPage() {
           </p>
         )}
 
-        {/* Table */}
         <div className="mt-4 overflow-hidden rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
@@ -94,7 +112,17 @@ function PipelinesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {rows.length === 0 && (
+              {isLoading && memberIds.length > 0 && (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-4 py-10 text-center text-muted-foreground"
+                  >
+                    Loading pipeline candidates…
+                  </td>
+                </tr>
+              )}
+              {!isLoading && rowsByMembership.length === 0 && (
                 <tr>
                   <td
                     colSpan={5}
@@ -106,7 +134,7 @@ function PipelinesPage() {
                   </td>
                 </tr>
               )}
-              {rows.map((c) => {
+              {rowsByMembership.map((c) => {
                 const top = c.competitions[0];
                 return (
                   <tr

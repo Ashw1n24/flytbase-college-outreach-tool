@@ -32,7 +32,7 @@ const HEALTH_META: Record<
 
 export function TopNav({ health = "fail" }: { health?: HealthState }) {
   const h = HEALTH_META[health];
-  const { pipelines, candidatesInPipeline } = useTalent();
+  const { pipelines, pipelineMemberCount } = useTalent();
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-card px-4">
       <div className="flex items-center gap-2">
@@ -67,7 +67,7 @@ export function TopNav({ health = "fail" }: { health?: HealthState }) {
                     {p.name}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {candidatesInPipeline(p.id).length}
+                    {pipelineMemberCount(p.id)}
                   </span>
                 </Link>
               </DropdownMenuItem>

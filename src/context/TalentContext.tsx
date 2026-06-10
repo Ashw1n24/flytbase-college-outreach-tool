@@ -6,10 +6,8 @@ import {
   type ReactNode,
 } from "react";
 import {
-  MOCK_CANDIDATES,
   MOCK_PIPELINES,
   INITIAL_MEMBERSHIP,
-  type Candidate,
   type Pipeline,
 } from "@/data/talent";
 
@@ -18,9 +16,7 @@ interface TalentContextValue {
   /** candidateId -> pipelineId */
   membership: Record<string, string>;
   notes: Record<string, string>;
-  candidates: Candidate[];
   openCandidateId: string | null;
-  openCandidate: Candidate | null;
   openDrawer: (id: string) => void;
   closeDrawer: () => void;
   addToPipeline: (candidateId: string, pipelineId: string) => void;
@@ -28,7 +24,9 @@ interface TalentContextValue {
   createPipeline: (name: string) => Pipeline;
   setNote: (candidateId: string, value: string) => void;
   pipelineOf: (candidateId: string) => Pipeline | null;
-  candidatesInPipeline: (pipelineId: string) => Candidate[];
+  isInPipeline: (candidateId: string) => boolean;
+  pipelineMemberIds: (pipelineId: string) => string[];
+  pipelineMemberCount: (pipelineId: string) => number;
 }
 
 const TalentContext = createContext<TalentContextValue | null>(null);
@@ -40,15 +38,6 @@ export function TalentProvider({ children }: { children: ReactNode }) {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [openCandidateId, setOpenCandidateId] = useState<string | null>(null);
 
-  const candidates = useMemo(
-    () =>
-      MOCK_CANDIDATES.map((c) => ({
-        ...c,
-        in_pipeline: Boolean(membership[c.id]),
-      })),
-    [membership],
-  );
-
   const value = useMemo<TalentContextValue>(() => {
     const pipelineOf = (candidateId: string) => {
       const pid = membership[candidateId];
@@ -59,9 +48,7 @@ export function TalentProvider({ children }: { children: ReactNode }) {
       pipelines,
       membership,
       notes,
-      candidates,
       openCandidateId,
-      openCandidate: candidates.find((c) => c.id === openCandidateId) ?? null,
       openDrawer: (id) => setOpenCandidateId(id),
       closeDrawer: () => setOpenCandidateId(null),
       addToPipeline: (candidateId, pipelineId) =>
@@ -85,10 +72,15 @@ export function TalentProvider({ children }: { children: ReactNode }) {
       setNote: (candidateId, val) =>
         setNotes((n) => ({ ...n, [candidateId]: val })),
       pipelineOf,
-      candidatesInPipeline: (pipelineId) =>
-        candidates.filter((c) => membership[c.id] === pipelineId),
+      isInPipeline: (candidateId) => Boolean(membership[candidateId]),
+      pipelineMemberIds: (pipelineId) =>
+        Object.entries(membership)
+          .filter(([, pid]) => pid === pipelineId)
+          .map(([candidateId]) => candidateId),
+      pipelineMemberCount: (pipelineId) =>
+        Object.values(membership).filter((pid) => pid === pipelineId).length,
     };
-  }, [pipelines, membership, notes, candidates, openCandidateId]);
+  }, [pipelines, membership, notes, openCandidateId]);
 
   return (
     <TalentContext.Provider value={value}>{children}</TalentContext.Provider>

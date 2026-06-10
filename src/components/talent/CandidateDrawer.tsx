@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Award,
@@ -9,10 +10,12 @@ import {
   Mail,
   GraduationCap,
   StickyNote,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useTalent } from "@/context/TalentContext";
+import { getCandidateByIdFn } from "@/lib/api/candidates.functions";
 import {
   CATEGORY_CLASS,
   TIER_META,
@@ -38,8 +41,16 @@ function SourceLink({ name, url }: { name: string; url?: string | null }) {
 }
 
 export function CandidateDrawer() {
-  const { openCandidate, closeDrawer, notes, setNote, pipelineOf } = useTalent();
-  const open = Boolean(openCandidate);
+  const { openCandidateId, closeDrawer, notes, setNote, pipelineOf } =
+    useTalent();
+  const open = Boolean(openCandidateId);
+
+  const { data: c, isLoading } = useQuery({
+    queryKey: ["candidate", openCandidateId],
+    queryFn: () =>
+      getCandidateByIdFn({ data: { id: openCandidateId! } }),
+    enabled: Boolean(openCandidateId),
+  });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -49,12 +60,10 @@ export function CandidateDrawer() {
     return () => window.removeEventListener("keydown", onKey);
   }, [closeDrawer]);
 
-  const c = openCandidate;
   const pipeline = c ? pipelineOf(c.id) : null;
 
   return (
     <>
-      {/* Backdrop */}
       <div
         onClick={closeDrawer}
         className={cn(
@@ -62,7 +71,6 @@ export function CandidateDrawer() {
           open ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       />
-      {/* Drawer */}
       <aside
         className={cn(
           "fixed right-0 top-0 z-50 flex h-screen w-[480px] max-w-[92vw] flex-col border-l border-border bg-card shadow-2xl transition-transform duration-300 ease-out",
@@ -70,9 +78,15 @@ export function CandidateDrawer() {
         )}
         aria-hidden={!open}
       >
+        {open && isLoading && (
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Loading profile…
+          </div>
+        )}
+
         {c && (
           <>
-            {/* Header */}
             <div className="flex items-center gap-2 border-b border-border px-4 py-3">
               <Button
                 variant="ghost"
@@ -89,7 +103,6 @@ export function CandidateDrawer() {
             </div>
 
             <div className="flex-1 overflow-y-auto">
-              {/* Identity */}
               <div className="border-b border-border px-5 py-4">
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-semibold tracking-tight">
@@ -108,7 +121,6 @@ export function CandidateDrawer() {
                 </p>
               </div>
 
-              {/* Competition History */}
               <section className="border-b border-border px-5 py-4">
                 <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <Award className="h-4 w-4" />
@@ -155,7 +167,6 @@ export function CandidateDrawer() {
                 </ul>
               </section>
 
-              {/* Positions of Responsibility */}
               <section className="border-b border-border px-5 py-4">
                 <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <UserCheck className="h-4 w-4" />
@@ -183,7 +194,6 @@ export function CandidateDrawer() {
                 </ul>
               </section>
 
-              {/* Contact */}
               <section className="border-b border-border px-5 py-4">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Contact
@@ -245,7 +255,6 @@ export function CandidateDrawer() {
                 </div>
               </section>
 
-              {/* Notes */}
               <section className="px-5 py-4">
                 <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <StickyNote className="h-4 w-4" />
