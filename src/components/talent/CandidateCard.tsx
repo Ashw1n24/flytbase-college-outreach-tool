@@ -1,5 +1,4 @@
-import { Linkedin, Mail, Github, Plus, Award, UserCheck } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Linkedin, Mail, Github, Award, UserCheck } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   type Candidate,
@@ -7,6 +6,8 @@ import {
   TIER_META,
   EMAIL_CONFIDENCE_LABEL,
 } from "@/data/talent";
+import { useTalent } from "@/context/TalentContext";
+import { AddToPipelineMenu } from "./AddToPipelineMenu";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -17,10 +18,17 @@ interface Props {
 
 export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
   const c = candidate;
+  const { openDrawer } = useTalent();
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={() => openDrawer(c.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") openDrawer(c.id);
+      }}
       className={cn(
-        "group rounded-lg border bg-card p-4 shadow-sm transition-all hover:border-border hover:shadow-md",
+        "group cursor-pointer rounded-lg border bg-card p-4 shadow-sm transition-all hover:border-border hover:shadow-md",
         selected
           ? "border-primary/40 bg-accent/40 ring-1 ring-primary/30"
           : "border-border",
@@ -32,6 +40,7 @@ export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
         <Checkbox
           checked={selected}
           onCheckedChange={() => onToggleSelect(c.id)}
+          onClick={(e) => e.stopPropagation()}
           className="mt-1"
         />
         <div className="min-w-0 flex-1">
@@ -47,10 +56,7 @@ export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
             {c.university} · {c.degree} {c.branch} · Class of {c.graduation_year}
           </p>
         </div>
-        <Button variant="outline" size="sm" className="h-7 shrink-0 gap-1 text-xs">
-          <Plus className="h-3.5 w-3.5" />
-          Add to Pipeline
-        </Button>
+        <AddToPipelineMenu candidateId={c.id} />
       </div>
 
       {/* Competitions */}
@@ -102,6 +108,7 @@ export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
             href={`https://${c.linkedin_url}`}
             target="_blank"
             rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
             className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-primary"
           >
             <Linkedin className="h-3.5 w-3.5" />
@@ -129,6 +136,7 @@ export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
             href={`https://${c.github_url}`}
             target="_blank"
             rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
             className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-primary"
           >
             <Github className="h-3.5 w-3.5" />
