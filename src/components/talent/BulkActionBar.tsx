@@ -4,15 +4,20 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useTalent } from "@/context/TalentContext";
 
 interface Props {
   count: number;
   onClear: () => void;
+  onAddToPipeline: (pipelineId: string) => void;
 }
 
-export function BulkActionBar({ count, onClear }: Props) {
+export function BulkActionBar({ count, onClear, onAddToPipeline }: Props) {
+  const { pipelines } = useTalent();
   if (count === 0) return null;
   return (
     <div className="pointer-events-none sticky bottom-4 z-30 flex justify-center px-6">
@@ -30,9 +35,16 @@ export function BulkActionBar({ count, onClear }: Props) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="center">
-            <DropdownMenuItem>SWE Intern — July 2025</DropdownMenuItem>
-            <DropdownMenuItem>Hardware Lead — Q3</DropdownMenuItem>
-            <DropdownMenuItem>+ Create New Pipeline</DropdownMenuItem>
+            <DropdownMenuLabel>Add {count} to pipeline</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {pipelines.map((p) => (
+              <DropdownMenuItem
+                key={p.id}
+                onSelect={() => onAddToPipeline(p.id)}
+              >
+                {p.name}
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
         <Button variant="outline" size="sm" className="h-8 gap-1.5">
