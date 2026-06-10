@@ -9,9 +9,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { CandidateCard } from "./CandidateCard";
 import { BulkActionBar } from "./BulkActionBar";
-import { MOCK_CANDIDATES } from "@/data/talent";
+import { useTalent } from "@/context/TalentContext";
 
 export function ResultsPanel() {
+  const { candidates, addToPipeline } = useTalent();
   const [selected, setSelected] = useState<string[]>([]);
   const [sort, setSort] = useState("Relevance");
 
@@ -23,7 +24,7 @@ export function ResultsPanel() {
       <div className="sticky top-14 z-20 flex items-center gap-3 border-b border-border bg-background/95 px-6 py-3 backdrop-blur">
         <p className="text-sm">
           Showing{" "}
-          <span className="font-semibold">{MOCK_CANDIDATES.length}</span>{" "}
+          <span className="font-semibold">{candidates.length}</span>{" "}
           candidates
         </p>
         <div className="ml-auto flex items-center gap-2">
@@ -53,7 +54,7 @@ export function ResultsPanel() {
       </div>
 
       <div className="flex-1 space-y-3 p-6">
-        {MOCK_CANDIDATES.map((c) => (
+        {candidates.map((c) => (
           <CandidateCard
             key={c.id}
             candidate={c}
@@ -63,7 +64,14 @@ export function ResultsPanel() {
         ))}
       </div>
 
-      <BulkActionBar count={selected.length} onClear={() => setSelected([])} />
+      <BulkActionBar
+        count={selected.length}
+        onClear={() => setSelected([])}
+        onAddToPipeline={(pipelineId) => {
+          selected.forEach((id) => addToPipeline(id, pipelineId));
+          setSelected([]);
+        }}
+      />
     </main>
   );
 }
