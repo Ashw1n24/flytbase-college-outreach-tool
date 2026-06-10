@@ -1,29 +1,36 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { TopNav } from "@/components/talent/TopNav";
+import { FilterPanel } from "@/components/talent/FilterPanel";
+import { ResultsPanel } from "@/components/talent/ResultsPanel";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Your App" },
-      { name: "description", content: "Replace this with a one-sentence description of your app." },
-      { property: "og:title", content: "Your App" },
-      { property: "og:description", content: "Replace this with a one-sentence description of your app." },
+      { title: "High-Agency Talent Engine · FlytBase" },
+      {
+        name: "description",
+        content:
+          "Internal sourcing engine for discovering high-agency students and graduates from Tier 1 institutions by proof of work.",
+      },
+      { property: "og:title", content: "High-Agency Talent Engine · FlytBase" },
+      {
+        property: "og:description",
+        content:
+          "Source high-agency candidates by competitions won and positions of responsibility held.",
+      },
     ],
   }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
 function Index() {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
+    <div className="min-h-screen bg-background text-foreground">
+      <TopNav health="fail" />
+      <div className="flex">
+        <FilterPanel />
+        <ResultsPanel />
+      </div>
     </div>
   );
 }

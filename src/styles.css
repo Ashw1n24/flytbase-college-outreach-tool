@@ -97,6 +97,59 @@
   --sidebar-ring: oklch(0.704 0.04 256.788);
 }
 
+/* ── High-Agency Talent Engine: app-specific design tokens ── */
+:root {
+  --radius: 0.5rem;
+  --background: oklch(0.985 0.003 247.86);
+  --foreground: oklch(0.21 0.03 264.36);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.03 264.36);
+  --primary: oklch(0.49 0.16 264.05);
+  --primary-foreground: oklch(0.985 0.003 247.86);
+  --muted: oklch(0.967 0.006 247.9);
+  --muted-foreground: oklch(0.5 0.03 257.4);
+  --accent: oklch(0.95 0.02 255);
+  --accent-foreground: oklch(0.3 0.05 264);
+  --border: oklch(0.916 0.012 255.5);
+  --input: oklch(0.916 0.012 255.5);
+  --ring: oklch(0.49 0.16 264.05);
+
+  /* Competition category badges */
+  --cat-hardware: oklch(0.95 0.05 70);
+  --cat-hardware-fg: oklch(0.48 0.14 50);
+  --cat-software: oklch(0.95 0.04 250);
+  --cat-software-fg: oklch(0.48 0.16 258);
+  --cat-founders: oklch(0.95 0.04 305);
+  --cat-founders-fg: oklch(0.49 0.18 303);
+  --cat-gtm: oklch(0.95 0.05 180);
+  --cat-gtm-fg: oklch(0.46 0.1 195);
+
+  /* PoR badge */
+  --por: oklch(0.95 0.06 150);
+  --por-fg: oklch(0.46 0.13 152);
+
+  /* Health states */
+  --ok: oklch(0.62 0.16 152);
+  --warn: oklch(0.73 0.16 75);
+  --fail: oklch(0.58 0.22 27);
+}
+
+@theme inline {
+  --color-cat-hardware: var(--cat-hardware);
+  --color-cat-hardware-fg: var(--cat-hardware-fg);
+  --color-cat-software: var(--cat-software);
+  --color-cat-software-fg: var(--cat-software-fg);
+  --color-cat-founders: var(--cat-founders);
+  --color-cat-founders-fg: var(--cat-founders-fg);
+  --color-cat-gtm: var(--cat-gtm);
+  --color-cat-gtm-fg: var(--cat-gtm-fg);
+  --color-por: var(--por);
+  --color-por-fg: var(--por-fg);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-fail: var(--fail);
+}
+
 .dark {
   --background: oklch(0.129 0.042 264.695);
   --foreground: oklch(0.984 0.003 247.858);
