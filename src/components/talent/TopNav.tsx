@@ -3,10 +3,10 @@ import {
   ChevronDown,
   Zap,
   Settings,
-  Plus,
   FolderKanban,
   Users,
 } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useTalent } from "@/context/TalentContext";
 import { cn } from "@/lib/utils";
 
 type HealthState = "ok" | "warn" | "fail";
@@ -29,14 +30,9 @@ const HEALTH_META: Record<
   fail: { label: "Failing", dot: "bg-fail", text: "text-fail" },
 };
 
-const PIPELINES = [
-  { name: "SWE Intern — July 2025", count: 12 },
-  { name: "Hardware Lead — Q3", count: 5 },
-  { name: "Founders Office — 2025", count: 8 },
-];
-
 export function TopNav({ health = "fail" }: { health?: HealthState }) {
   const h = HEALTH_META[health];
+  const { pipelines, candidatesInPipeline } = useTalent();
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-card px-4">
       <div className="flex items-center gap-2">
@@ -44,9 +40,9 @@ export function TopNav({ health = "fail" }: { health?: HealthState }) {
           <Search className="h-4 w-4" />
         </div>
         <div className="leading-tight">
-          <h1 className="text-sm font-semibold tracking-tight">
+          <Link to="/" className="text-sm font-semibold tracking-tight hover:text-primary">
             High-Agency Talent Engine
-          </h1>
+          </Link>
           <p className="text-[11px] text-muted-foreground">FlytBase · Internal</p>
         </div>
       </div>
@@ -63,30 +59,32 @@ export function TopNav({ health = "fail" }: { health?: HealthState }) {
           <DropdownMenuContent align="end" className="w-64">
             <DropdownMenuLabel>Pipelines</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {PIPELINES.map((p) => (
-              <DropdownMenuItem key={p.name} className="justify-between">
-                <span className="flex items-center gap-2">
-                  <Users className="h-3.5 w-3.5 text-muted-foreground" />
-                  {p.name}
-                </span>
-                <span className="text-xs text-muted-foreground">{p.count}</span>
+            {pipelines.map((p) => (
+              <DropdownMenuItem key={p.id} asChild className="justify-between">
+                <Link to="/pipelines" search={{ pipeline: p.id }}>
+                  <span className="flex items-center gap-2">
+                    <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                    {p.name}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {candidatesInPipeline(p.id).length}
+                  </span>
+                </Link>
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <Plus className="h-3.5 w-3.5" />
-              Create New Pipeline
-            </DropdownMenuItem>
-            <DropdownMenuItem className="text-muted-foreground">
-              Manage Pipelines →
+            <DropdownMenuItem asChild className="text-muted-foreground">
+              <Link to="/pipelines">Manage Pipelines →</Link>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Button variant="outline" size="sm" className="h-8 gap-1.5">
-          <span className={cn("h-2 w-2 rounded-full", h.dot)} />
-          <Zap className="h-4 w-4" />
-          <span className={cn("font-medium", h.text)}>Health</span>
+        <Button asChild variant="outline" size="sm" className="h-8 gap-1.5">
+          <Link to="/admin/health">
+            <span className={cn("h-2 w-2 rounded-full", h.dot)} />
+            <Zap className="h-4 w-4" />
+            <span className={cn("font-medium", h.text)}>Health</span>
+          </Link>
         </Button>
 
         <Button variant="outline" size="sm" className="h-8 gap-1.5">

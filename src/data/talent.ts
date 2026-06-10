@@ -27,6 +27,7 @@ export interface CompetitionResult {
   result_tier: ResultTier;
   year: number;
   team_name?: string | null;
+  source_url?: string | null;
 }
 
 export interface PositionOfResponsibility {
@@ -35,6 +36,7 @@ export interface PositionOfResponsibility {
   por_category: PorCategory;
   year_start: number;
   year_end: number | null;
+  source_url?: string | null;
 }
 
 export interface Candidate {
@@ -183,6 +185,142 @@ export const EMAIL_CONFIDENCE_LABEL: Record<EmailConfidence, string> = {
   github_commit: "github commit",
   inferred: "inferred",
 };
+
+/** Builds a fallback "view source" URL when an entry has no explicit one. */
+export function sourceUrlFor(name: string, explicit?: string | null): string {
+  if (explicit) return explicit;
+  return `https://www.google.com/search?q=${encodeURIComponent(name + " results")}`;
+}
+
+export interface Pipeline {
+  id: string;
+  name: string;
+  description: string;
+  role: string;
+}
+
+export const MOCK_PIPELINES: Pipeline[] = [
+  {
+    id: "p1",
+    name: "SWE Intern — July 2025",
+    description: "Software engineering interns for the summer cohort.",
+    role: "Software Engineer Intern",
+  },
+  {
+    id: "p2",
+    name: "Hardware Lead — Q3",
+    description: "Senior hardware/robotics builders for the autonomy team.",
+    role: "Hardware Lead",
+  },
+  {
+    id: "p3",
+    name: "Founders Office — 2025",
+    description: "High-agency generalists for the founders office.",
+    role: "Founders Office Associate",
+  },
+];
+
+/** Initial membership: candidateId -> pipelineId. */
+export const INITIAL_MEMBERSHIP: Record<string, string> = {
+  c1: "p1",
+};
+
+/* ── Scraper Health Dashboard mock data ── */
+
+export type ScraperStatus = "ok" | "degraded" | "failed";
+
+export interface ScraperHealth {
+  id: string;
+  name: string;
+  source: string;
+  status: ScraperStatus;
+  records_extracted: number;
+  records_expected: number;
+  last_run: string;
+  error_message?: string;
+}
+
+export const SCRAPER_HEALTH: ScraperHealth[] = [
+  {
+    id: "devfolio",
+    name: "devfolio",
+    source: "devfolio.co/hackathons",
+    status: "ok",
+    records_extracted: 1284,
+    records_expected: 1300,
+    last_run: "2026-06-10T04:12:00Z",
+  },
+  {
+    id: "sih_pdf",
+    name: "sih_pdf",
+    source: "sih.gov.in result PDFs",
+    status: "degraded",
+    records_extracted: 642,
+    records_expected: 980,
+    last_run: "2026-06-10T03:48:00Z",
+    error_message:
+      "PDF layout changed for 2024 winners; 12 of 31 PDFs failed table extraction (camelot fallback engaged).",
+  },
+  {
+    id: "e_yantra",
+    name: "e_yantra",
+    source: "e-yantra.org/results",
+    status: "failed",
+    records_extracted: 0,
+    records_expected: 540,
+    last_run: "2026-06-10T02:30:00Z",
+    error_message:
+      "HTTP 403 Forbidden on results index. Cloudflare challenge detected — rotating user-agent did not resolve. Last successful run: 2026-06-07.",
+  },
+  {
+    id: "unstop",
+    name: "unstop",
+    source: "unstop.com/competitions",
+    status: "ok",
+    records_extracted: 2110,
+    records_expected: 2150,
+    last_run: "2026-06-10T04:30:00Z",
+  },
+  {
+    id: "interiit",
+    name: "interiit_tech",
+    source: "interiit-tech.org",
+    status: "degraded",
+    records_extracted: 188,
+    records_expected: 240,
+    last_run: "2026-06-09T22:05:00Z",
+    error_message:
+      "Partial scrape: team-member roster pages timed out (8 of 40). Retry queued for next window.",
+  },
+];
+
+export interface RateLimit {
+  id: string;
+  service: string;
+  metric: string;
+  used: number;
+  limit: number;
+  reset_label: string;
+}
+
+export const RATE_LIMITS: RateLimit[] = [
+  {
+    id: "ddg",
+    service: "DuckDuckGo",
+    metric: "Daily lookups",
+    used: 1840,
+    limit: 2500,
+    reset_label: "Resets 00:00 UTC",
+  },
+  {
+    id: "github",
+    service: "GitHub API",
+    metric: "Requests remaining",
+    used: 4120,
+    limit: 5000,
+    reset_label: "Resets in 38 min",
+  },
+];
 
 export const MOCK_CANDIDATES: Candidate[] = [
   {
