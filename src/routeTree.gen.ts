@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PipelinesRouteImport } from './routes/pipelines'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminHealthRouteImport } from './routes/admin.health'
 
 const PipelinesRoute = PipelinesRouteImport.update({
   id: '/pipelines',
@@ -22,31 +23,40 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminHealthRoute = AdminHealthRouteImport.update({
+  id: '/admin/health',
+  path: '/admin/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/pipelines': typeof PipelinesRoute
+  '/admin/health': typeof AdminHealthRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/pipelines': typeof PipelinesRoute
+  '/admin/health': typeof AdminHealthRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/pipelines': typeof PipelinesRoute
+  '/admin/health': typeof AdminHealthRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/pipelines'
+  fullPaths: '/' | '/pipelines' | '/admin/health'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/pipelines'
-  id: '__root__' | '/' | '/pipelines'
+  to: '/' | '/pipelines' | '/admin/health'
+  id: '__root__' | '/' | '/pipelines' | '/admin/health'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   PipelinesRoute: typeof PipelinesRoute
+  AdminHealthRoute: typeof AdminHealthRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/health': {
+      id: '/admin/health'
+      path: '/admin/health'
+      fullPath: '/admin/health'
+      preLoaderRoute: typeof AdminHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   PipelinesRoute: PipelinesRoute,
+  AdminHealthRoute: AdminHealthRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
