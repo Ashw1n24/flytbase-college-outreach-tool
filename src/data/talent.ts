@@ -27,6 +27,7 @@ export interface CompetitionResult {
   result_tier: ResultTier;
   year: number;
   team_name?: string | null;
+  source_url?: string | null;
 }
 
 export interface PositionOfResponsibility {
@@ -35,6 +36,7 @@ export interface PositionOfResponsibility {
   por_category: PorCategory;
   year_start: number;
   year_end: number | null;
+  source_url?: string | null;
 }
 
 export interface Candidate {
