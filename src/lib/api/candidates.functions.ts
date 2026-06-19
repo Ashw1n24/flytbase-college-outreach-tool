@@ -27,9 +27,15 @@ const resultTierSchema = z.enum([
 const porCategorySchema = z.enum([
   "ecell",
   "technical_committee",
-  "cultural_fest",
   "student_body",
-  "sports",
+]);
+
+const candidateSourceSchema = z.enum([
+  "competition_scrape",
+  "google_search",
+  "twitter",
+  "linkedin",
+  "manual",
 ]);
 
 const searchParamsSchema = z.object({
@@ -39,6 +45,16 @@ const searchParamsSchema = z.object({
   grad_year_max: z.number().int().optional(),
   degrees: z.array(z.string()).optional(),
   branches: z.array(z.string()).optional(),
+  sources: z.array(candidateSourceSchema).optional(),
+  role_fit_labels: z.array(z.enum([
+    "Agentic AI Engineer",
+    "Software Engineer",
+    "Product Manager",
+    "Product Marketing",
+    "Founder's Office",
+    "BDR / Sales",
+    "Marketing",
+  ])).optional(),
   has_competition: z.boolean().optional(),
   competition_categories: z.array(competitionCategorySchema).optional(),
   competition_names: z.array(z.string()).optional(),
@@ -76,4 +92,11 @@ export const getCandidatesByIdsFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const supabase = getSupabaseAdmin();
     return getCandidatesByIds(supabase, data.ids);
+  });
+
+export const exportStudentCandidatesFn = createServerFn({ method: "POST" })
+  .validator(searchParamsSchema.omit({ page: true, limit: true }))
+  .handler(async ({ data }) => {
+    const supabase = getSupabaseAdmin();
+    return searchCandidates(supabase, { ...data, page: 0, limit: 10_000 });
   });

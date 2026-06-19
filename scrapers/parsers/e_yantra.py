@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 
 from bs4 import BeautifulSoup
@@ -9,11 +10,23 @@ from parsers.base import BaseParser
 from utils.http import fetch_html
 from utils.normalise import normalise_result_tier
 
+# Set SKIP_E_YANTRA=true in .env to disable this scraper gracefully when
+# e-yantra.org is blocking with a Cloudflare challenge (HTTP 403).
+# The run will log status="skipped" instead of "failed" so the health
+# dashboard shows a yellow warning rather than a red alert.
+_SKIP = os.environ.get("SKIP_E_YANTRA", "").lower() in ("1", "true", "yes")
+
 
 class EYantraParser(BaseParser):
     name = "e_yantra"
 
     def scrape(self, target: ScrapeTarget) -> list[RawParticipant]:
+        if _SKIP:
+            raise _SkippedError(
+                "e-yantra scraper disabled via SKIP_E_YANTRA=true "
+                "(Cloudflare 403 challenge active — check e-yantra.org manually)"
+            )
+
         html = fetch_html(target.url)
         soup = BeautifulSoup(html, "lxml")
         results: list[RawParticipant] = []
@@ -60,3 +73,7 @@ class EYantraParser(BaseParser):
                 )
 
         return results
+
+
+class _SkippedError(RuntimeError):
+    """Raised when a scraper is explicitly disabled via env var."""

@@ -26,6 +26,7 @@ from config.platform_registry import resolve_targets_for_event  # noqa: E402
 from db.ingest import SupabaseIngestor  # noqa: E402
 from db.supabase_client import get_supabase_client  # noqa: E402
 from loaders.spreadsheet import load_events_from_spreadsheet  # noqa: E402
+from parsers.e_yantra import _SkippedError  # noqa: E402
 from parsers.registry import get_parser  # noqa: E402
 from utils.logger import ScraperLogger  # noqa: E402
 from utils.normalise import normalise_participant  # noqa: E402
@@ -122,6 +123,20 @@ def run_scraper(
                 )
                 total_candidates += int(created_candidate)
                 total_competitions += int(created_competition)
+
+        except _SkippedError as exc:
+            # Scraper voluntarily disabled (e.g. SKIP_E_YANTRA=true).
+            # Log as "skipped" so the health dashboard shows a warning, not an alert.
+            logger.warning(f"Skipped {target.event_name}: {exc}")
+            if not dry_run and ingestor:
+                ingestor.log_health(
+                    scraper_name,
+                    "skipped",
+                    0,
+                    EXPECTED_MINIMUM,
+                    error_message=str(exc),
+                    source_url=target.url,
+                )
 
         except Exception as exc:
             failures += 1

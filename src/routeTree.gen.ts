@@ -10,12 +10,36 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as PipelinesRouteImport } from './routes/pipelines'
+import { Route as ExperiencedRouteImport } from './routes/experienced'
+import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as CompetitionsRouteImport } from './routes/competitions'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ExperiencedCompaniesRouteImport } from './routes/experienced.companies'
+import { Route as ExperiencedCandidatesRouteImport } from './routes/experienced.candidates'
+import { Route as ExperiencedCampaignIdRouteImport } from './routes/experienced.$campaignId'
 import { Route as AdminHealthRouteImport } from './routes/admin.health'
+import { Route as ApiFirecrawlChar43serverRouteImport } from './routes/api/firecrawl/+server'
+import { Route as ApiScrapeTwitterChar43serverRouteImport } from './routes/api/scrape/twitter/+server'
+import { Route as ApiScrapeLinkedinChar43serverRouteImport } from './routes/api/scrape/linkedin/+server'
 
 const PipelinesRoute = PipelinesRouteImport.update({
   id: '/pipelines',
   path: '/pipelines',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExperiencedRoute = ExperiencedRouteImport.update({
+  id: '/experienced',
+  path: '/experienced',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardRoute = DashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CompetitionsRoute = CompetitionsRouteImport.update({
+  id: '/competitions',
+  path: '/competitions',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -23,40 +47,143 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExperiencedCompaniesRoute = ExperiencedCompaniesRouteImport.update({
+  id: '/companies',
+  path: '/companies',
+  getParentRoute: () => ExperiencedRoute,
+} as any)
+const ExperiencedCandidatesRoute = ExperiencedCandidatesRouteImport.update({
+  id: '/candidates',
+  path: '/candidates',
+  getParentRoute: () => ExperiencedRoute,
+} as any)
+const ExperiencedCampaignIdRoute = ExperiencedCampaignIdRouteImport.update({
+  id: '/$campaignId',
+  path: '/$campaignId',
+  getParentRoute: () => ExperiencedRoute,
+} as any)
 const AdminHealthRoute = AdminHealthRouteImport.update({
   id: '/admin/health',
   path: '/admin/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiFirecrawlChar43serverRoute =
+  ApiFirecrawlChar43serverRouteImport.update({
+    id: '/api/firecrawl/+server',
+    path: '/api/firecrawl/+server',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiScrapeTwitterChar43serverRoute =
+  ApiScrapeTwitterChar43serverRouteImport.update({
+    id: '/api/scrape/twitter/+server',
+    path: '/api/scrape/twitter/+server',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiScrapeLinkedinChar43serverRoute =
+  ApiScrapeLinkedinChar43serverRouteImport.update({
+    id: '/api/scrape/linkedin/+server',
+    path: '/api/scrape/linkedin/+server',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/competitions': typeof CompetitionsRoute
+  '/dashboard': typeof DashboardRoute
+  '/experienced': typeof ExperiencedRouteWithChildren
   '/pipelines': typeof PipelinesRoute
   '/admin/health': typeof AdminHealthRoute
+  '/experienced/$campaignId': typeof ExperiencedCampaignIdRoute
+  '/experienced/candidates': typeof ExperiencedCandidatesRoute
+  '/experienced/companies': typeof ExperiencedCompaniesRoute
+  '/api/firecrawl/+server': typeof ApiFirecrawlChar43serverRoute
+  '/api/scrape/linkedin/+server': typeof ApiScrapeLinkedinChar43serverRoute
+  '/api/scrape/twitter/+server': typeof ApiScrapeTwitterChar43serverRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/competitions': typeof CompetitionsRoute
+  '/dashboard': typeof DashboardRoute
+  '/experienced': typeof ExperiencedRouteWithChildren
   '/pipelines': typeof PipelinesRoute
   '/admin/health': typeof AdminHealthRoute
+  '/experienced/$campaignId': typeof ExperiencedCampaignIdRoute
+  '/experienced/candidates': typeof ExperiencedCandidatesRoute
+  '/experienced/companies': typeof ExperiencedCompaniesRoute
+  '/api/firecrawl/+server': typeof ApiFirecrawlChar43serverRoute
+  '/api/scrape/linkedin/+server': typeof ApiScrapeLinkedinChar43serverRoute
+  '/api/scrape/twitter/+server': typeof ApiScrapeTwitterChar43serverRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/competitions': typeof CompetitionsRoute
+  '/dashboard': typeof DashboardRoute
+  '/experienced': typeof ExperiencedRouteWithChildren
   '/pipelines': typeof PipelinesRoute
   '/admin/health': typeof AdminHealthRoute
+  '/experienced/$campaignId': typeof ExperiencedCampaignIdRoute
+  '/experienced/candidates': typeof ExperiencedCandidatesRoute
+  '/experienced/companies': typeof ExperiencedCompaniesRoute
+  '/api/firecrawl/+server': typeof ApiFirecrawlChar43serverRoute
+  '/api/scrape/linkedin/+server': typeof ApiScrapeLinkedinChar43serverRoute
+  '/api/scrape/twitter/+server': typeof ApiScrapeTwitterChar43serverRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/pipelines' | '/admin/health'
+  fullPaths:
+    | '/'
+    | '/competitions'
+    | '/dashboard'
+    | '/experienced'
+    | '/pipelines'
+    | '/admin/health'
+    | '/experienced/$campaignId'
+    | '/experienced/candidates'
+    | '/experienced/companies'
+    | '/api/firecrawl/+server'
+    | '/api/scrape/linkedin/+server'
+    | '/api/scrape/twitter/+server'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/pipelines' | '/admin/health'
-  id: '__root__' | '/' | '/pipelines' | '/admin/health'
+  to:
+    | '/'
+    | '/competitions'
+    | '/dashboard'
+    | '/experienced'
+    | '/pipelines'
+    | '/admin/health'
+    | '/experienced/$campaignId'
+    | '/experienced/candidates'
+    | '/experienced/companies'
+    | '/api/firecrawl/+server'
+    | '/api/scrape/linkedin/+server'
+    | '/api/scrape/twitter/+server'
+  id:
+    | '__root__'
+    | '/'
+    | '/competitions'
+    | '/dashboard'
+    | '/experienced'
+    | '/pipelines'
+    | '/admin/health'
+    | '/experienced/$campaignId'
+    | '/experienced/candidates'
+    | '/experienced/companies'
+    | '/api/firecrawl/+server'
+    | '/api/scrape/linkedin/+server'
+    | '/api/scrape/twitter/+server'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CompetitionsRoute: typeof CompetitionsRoute
+  DashboardRoute: typeof DashboardRoute
+  ExperiencedRoute: typeof ExperiencedRouteWithChildren
   PipelinesRoute: typeof PipelinesRoute
   AdminHealthRoute: typeof AdminHealthRoute
+  ApiFirecrawlChar43serverRoute: typeof ApiFirecrawlChar43serverRoute
+  ApiScrapeLinkedinChar43serverRoute: typeof ApiScrapeLinkedinChar43serverRoute
+  ApiScrapeTwitterChar43serverRoute: typeof ApiScrapeTwitterChar43serverRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -68,12 +195,54 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PipelinesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/experienced': {
+      id: '/experienced'
+      path: '/experienced'
+      fullPath: '/experienced'
+      preLoaderRoute: typeof ExperiencedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/competitions': {
+      id: '/competitions'
+      path: '/competitions'
+      fullPath: '/competitions'
+      preLoaderRoute: typeof CompetitionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/experienced/companies': {
+      id: '/experienced/companies'
+      path: '/companies'
+      fullPath: '/experienced/companies'
+      preLoaderRoute: typeof ExperiencedCompaniesRouteImport
+      parentRoute: typeof ExperiencedRoute
+    }
+    '/experienced/candidates': {
+      id: '/experienced/candidates'
+      path: '/candidates'
+      fullPath: '/experienced/candidates'
+      preLoaderRoute: typeof ExperiencedCandidatesRouteImport
+      parentRoute: typeof ExperiencedRoute
+    }
+    '/experienced/$campaignId': {
+      id: '/experienced/$campaignId'
+      path: '/$campaignId'
+      fullPath: '/experienced/$campaignId'
+      preLoaderRoute: typeof ExperiencedCampaignIdRouteImport
+      parentRoute: typeof ExperiencedRoute
     }
     '/admin/health': {
       id: '/admin/health'
@@ -82,13 +251,56 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/firecrawl/+server': {
+      id: '/api/firecrawl/+server'
+      path: '/api/firecrawl/+server'
+      fullPath: '/api/firecrawl/+server'
+      preLoaderRoute: typeof ApiFirecrawlChar43serverRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scrape/twitter/+server': {
+      id: '/api/scrape/twitter/+server'
+      path: '/api/scrape/twitter/+server'
+      fullPath: '/api/scrape/twitter/+server'
+      preLoaderRoute: typeof ApiScrapeTwitterChar43serverRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scrape/linkedin/+server': {
+      id: '/api/scrape/linkedin/+server'
+      path: '/api/scrape/linkedin/+server'
+      fullPath: '/api/scrape/linkedin/+server'
+      preLoaderRoute: typeof ApiScrapeLinkedinChar43serverRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
+interface ExperiencedRouteChildren {
+  ExperiencedCampaignIdRoute: typeof ExperiencedCampaignIdRoute
+  ExperiencedCandidatesRoute: typeof ExperiencedCandidatesRoute
+  ExperiencedCompaniesRoute: typeof ExperiencedCompaniesRoute
+}
+
+const ExperiencedRouteChildren: ExperiencedRouteChildren = {
+  ExperiencedCampaignIdRoute: ExperiencedCampaignIdRoute,
+  ExperiencedCandidatesRoute: ExperiencedCandidatesRoute,
+  ExperiencedCompaniesRoute: ExperiencedCompaniesRoute,
+}
+
+const ExperiencedRouteWithChildren = ExperiencedRoute._addFileChildren(
+  ExperiencedRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CompetitionsRoute: CompetitionsRoute,
+  DashboardRoute: DashboardRoute,
+  ExperiencedRoute: ExperiencedRouteWithChildren,
   PipelinesRoute: PipelinesRoute,
   AdminHealthRoute: AdminHealthRoute,
+  ApiFirecrawlChar43serverRoute: ApiFirecrawlChar43serverRoute,
+  ApiScrapeLinkedinChar43serverRoute: ApiScrapeLinkedinChar43serverRoute,
+  ApiScrapeTwitterChar43serverRoute: ApiScrapeTwitterChar43serverRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

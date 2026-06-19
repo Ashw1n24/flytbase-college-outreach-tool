@@ -6,6 +6,7 @@ import {
   type CandidateWithRelations,
 } from "@/lib/db/map-candidate";
 import { expandResultTiers } from "@/lib/db/result-tier";
+import { computeRoleFit, type RoleFitLabel } from "@/lib/utils/rolefit";
 import type { Database } from "@/types/database";
 import type { SearchParams, SearchResult } from "@/types/search";
 
@@ -150,17 +151,33 @@ function applyStandardFilters(query: CandidatesQuery, params: SearchParams) {
   if (params.universities?.length) {
     q = q.in("university", params.universities);
   }
-  if (params.grad_year_min != null) {
-    q = q.gte("graduation_year", params.grad_year_min);
+
+  // Grad year: include rows where graduation_year is null (google_search candidates
+  // have no grad year stored). Only exclude nulls when no year filter is active.
+  if (params.grad_year_min != null && params.grad_year_max != null) {
+    q = q.or(
+      `graduation_year.is.null,and(graduation_year.gte.${params.grad_year_min},graduation_year.lte.${params.grad_year_max})`,
+    );
+  } else if (params.grad_year_min != null) {
+    q = q.or(`graduation_year.is.null,graduation_year.gte.${params.grad_year_min}`);
+  } else if (params.grad_year_max != null) {
+    q = q.or(`graduation_year.is.null,graduation_year.lte.${params.grad_year_max}`);
   }
-  if (params.grad_year_max != null) {
-    q = q.lte("graduation_year", params.grad_year_max);
-  }
+
+  // Degree / branch: null means not collected — show those rows unless the user
+  // explicitly picks a degree/branch filter.
   if (params.degrees?.length) {
-    q = q.in("degree", params.degrees);
+    const inList = params.degrees.map((d) => `"${d}"`).join(",");
+    q = q.or(`degree.is.null,degree.in.(${inList})`);
   }
   if (params.branches?.length) {
-    q = q.in("branch", params.branches);
+    const inList = params.branches.map((b) => `"${b}"`).join(",");
+    q = q.or(`branch.is.null,branch.in.(${inList})`);
+  }
+
+  // Source filter: opt-in — only applied when the user picks one or more sources.
+  if (params.sources?.length) {
+    q = q.in("source", params.sources);
   }
 
   return q;
@@ -203,6 +220,12 @@ async function fetchPipelineMemberIds(
     }
   }
   return ids;
+}
+
+function filterByRoleFit(candidates: Candidate[], labels: RoleFitLabel[]): Candidate[] {
+  if (!labels.length) return candidates;
+  const wanted = new Set(labels);
+  return candidates.filter((c) => computeRoleFit(c).some((r) => wanted.has(r)));
 }
 
 export async function searchCandidates(
@@ -262,10 +285,12 @@ export async function searchCandidates(
     const byId = new Map(
       (data as CandidateWithRelations[] | null)?.map((row) => [row.id, row]) ?? [],
     );
-    const candidates = pageIds
+    let candidates = pageIds
       .map((id) => byId.get(id))
       .filter((row): row is CandidateWithRelations => Boolean(row))
       .map((row) => mapCandidate(row, pipelineIds.has(row.id)));
+
+    candidates = filterByRoleFit(candidates, params.role_fit_labels ?? []);
 
     return {
       candidates,
@@ -288,9 +313,12 @@ export async function searchCandidates(
   if (sortBy === "name") {
     query = query.order("full_name", { ascending: sortDir === "asc" });
   } else if (sortBy === "graduation_year") {
-    query = query.order("graduation_year", { ascending: sortDir === "asc" });
+    query = query.order("graduation_year", {
+      ascending: sortDir === "asc",
+      nullsFirst: sortDir === "desc",
+    });
   } else if (sortBy === "competition_count") {
-    query = query.order("graduation_year", { ascending: false });
+    query = query.order("graduation_year", { ascending: false, nullsFirst: true });
   }
 
   query = query.range(page * limit, page * limit + limit - 1);
@@ -308,6 +336,8 @@ export async function searchCandidates(
       return sortDir === "asc" ? diff : -diff;
     });
   }
+
+  candidates = filterByRoleFit(candidates, params.role_fit_labels ?? []);
 
   return {
     candidates,

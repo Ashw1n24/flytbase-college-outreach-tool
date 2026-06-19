@@ -1,10 +1,10 @@
 import {
-  Search,
   ChevronDown,
   Zap,
   Settings,
   FolderKanban,
   Users,
+  Trophy,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useTalent } from "@/context/TalentContext";
+import { useQuery } from "@tanstack/react-query";
+import { getPendingFlaggedFn } from "@/lib/api/competitions.functions";
 import { cn } from "@/lib/utils";
 
 type HealthState = "ok" | "warn" | "fail";
@@ -30,20 +32,34 @@ const HEALTH_META: Record<
   fail: { label: "Failing", dot: "bg-fail", text: "text-fail" },
 };
 
-export function TopNav({ health = "fail" }: { health?: HealthState }) {
+export function TopNav({
+  health = "fail",
+  hideCompetitions = false,
+}: {
+  health?: HealthState;
+  hideCompetitions?: boolean;
+}) {
   const h = HEALTH_META[health];
   const { pipelines, pipelineMemberCount } = useTalent();
+  const { data: pendingFlagged = [] } = useQuery({
+    queryKey: ["flagged_competitions", "pending"],
+    queryFn: () => getPendingFlaggedFn(),
+    staleTime: 60_000,
+    enabled: !hideCompetitions,
+  });
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-card px-4">
       <div className="flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-          <Search className="h-4 w-4" />
-        </div>
+        <img
+          src="/flytbase-logo.png"
+          alt="FlytBase"
+          className="mr-4 h-8 w-8 rounded-lg object-contain"
+        />
         <div className="leading-tight">
           <Link to="/" className="text-sm font-semibold tracking-tight hover:text-primary">
-            High-Agency Talent Engine
+            Talent Radar
           </Link>
-          <p className="text-[11px] text-muted-foreground">FlytBase · Internal</p>
+          <p className="text-[11px] text-muted-foreground">FlytBase · Sourcing Engine</p>
         </div>
       </div>
 
@@ -78,6 +94,20 @@ export function TopNav({ health = "fail" }: { health?: HealthState }) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {!hideCompetitions && (
+          <Button asChild variant="outline" size="sm" className="relative h-8 gap-1.5">
+            <Link to="/competitions">
+              <Trophy className="h-4 w-4" />
+              Competitions
+              {pendingFlagged.length > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                  {pendingFlagged.length}
+                </span>
+              )}
+            </Link>
+          </Button>
+        )}
 
         <Button asChild variant="outline" size="sm" className="h-8 gap-1.5">
           <Link to="/admin/health">

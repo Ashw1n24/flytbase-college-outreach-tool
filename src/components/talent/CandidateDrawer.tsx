@@ -23,7 +23,14 @@ import {
   sourceUrlFor,
 } from "@/data/talent";
 import { AddToPipelineMenu } from "./AddToPipelineMenu";
+import { computeRoleFit } from "@/lib/utils/rolefit";
 import { cn } from "@/lib/utils";
+
+function safeUrl(url: string | null): string | null {
+  if (!url) return null;
+  const fixed = url.replace(/^(https?)(\/\/)/, '$1:$2');
+  return /^https?:\/\//i.test(fixed) ? fixed : `https://${fixed}`;
+}
 
 function SourceLink({ name, url }: { name: string; url?: string | null }) {
   return (
@@ -61,6 +68,7 @@ export function CandidateDrawer() {
   }, [closeDrawer]);
 
   const pipeline = c ? pipelineOf(c.id) : null;
+  const roleFit = c ? computeRoleFit(c) : [];
 
   return (
     <>
@@ -98,7 +106,7 @@ export function CandidateDrawer() {
                 Back
               </Button>
               <div className="ml-auto">
-                <AddToPipelineMenu candidateId={c.id} />
+                <AddToPipelineMenu candidateId={c.id} suggestedRoleFit={roleFit[0]} />
               </div>
             </div>
 
@@ -201,7 +209,7 @@ export function CandidateDrawer() {
                 <div className="mt-3 space-y-2 text-sm">
                   {c.linkedin_url ? (
                     <a
-                      href={`https://${c.linkedin_url}`}
+                      href={safeUrl(c.linkedin_url)!}
                       target="_blank"
                       rel="noreferrer"
                       className="flex items-center gap-2 text-muted-foreground hover:text-primary"
@@ -218,7 +226,7 @@ export function CandidateDrawer() {
 
                   {c.github_url ? (
                     <a
-                      href={`https://${c.github_url}`}
+                      href={safeUrl(c.github_url)!}
                       target="_blank"
                       rel="noreferrer"
                       className="flex items-center gap-2 text-muted-foreground hover:text-primary"

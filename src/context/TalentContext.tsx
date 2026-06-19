@@ -8,6 +8,7 @@ import {
 import {
   MOCK_PIPELINES,
   INITIAL_MEMBERSHIP,
+  PIPELINE_ROLES,
   type Pipeline,
 } from "@/data/talent";
 
@@ -64,7 +65,7 @@ export function TalentProvider({ children }: { children: ReactNode }) {
           id: `p${Date.now()}`,
           name,
           description: "Custom pipeline created in this session.",
-          role: name,
+          role: PIPELINE_ROLES[0],
         };
         setPipelines((prev) => [...prev, p]);
         return p;

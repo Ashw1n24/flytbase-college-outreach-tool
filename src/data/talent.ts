@@ -15,11 +15,24 @@ export type ResultTier =
 export type PorCategory =
   | "ecell"
   | "technical_committee"
-  | "cultural_fest"
-  | "student_body"
-  | "sports";
+  | "student_body";
 
 export type EmailConfidence = "github_profile" | "github_commit" | "inferred";
+
+export type CandidateSource =
+  | "competition_scrape"
+  | "google_search"
+  | "twitter"
+  | "linkedin"
+  | "manual";
+
+export const SOURCES: { value: CandidateSource; label: string }[] = [
+  { value: "competition_scrape", label: "Competition" },
+  { value: "twitter",            label: "Twitter / X" },
+  { value: "linkedin",           label: "LinkedIn" },
+  { value: "google_search",      label: "Google Search" },
+  { value: "manual",             label: "Manual" },
+];
 
 export interface CompetitionResult {
   competition_name: string;
@@ -43,9 +56,10 @@ export interface Candidate {
   id: string;
   full_name: string;
   university: string;
-  degree: string;
-  branch: string;
-  graduation_year: number;
+  degree: string | null;
+  branch: string | null;
+  graduation_year: number | null;
+  source: CandidateSource;
   linkedin_url: string | null;
   email: string | null;
   email_confidence: EmailConfidence | null;
@@ -134,11 +148,9 @@ export const COMPETITIONS_BY_CATEGORY: Record<CompetitionCategory, string[]> = {
 };
 
 export const POR_CATEGORIES: { value: PorCategory; label: string }[] = [
-  { value: "ecell", label: "E-Cell" },
+  { value: "ecell", label: "E-Cell / Entrepreneurship" },
   { value: "technical_committee", label: "Technical Committee" },
-  { value: "cultural_fest", label: "Cultural Fest Core" },
-  { value: "student_body", label: "Student Government" },
-  { value: "sports", label: "Sports" },
+  { value: "student_body", label: "Student Government / Leadership" },
 ];
 
 export const RESULT_TIERS: { value: ResultTier; label: string }[] = [
@@ -192,31 +204,73 @@ export function sourceUrlFor(name: string, explicit?: string | null): string {
   return `https://www.google.com/search?q=${encodeURIComponent(name + " results")}`;
 }
 
+export const PIPELINE_ROLES = [
+  // Engineering
+  "Agentic AI Engineer",
+  "Software Engineer",
+  "Senior Software Engineer",
+  "AI Design Engineer",
+  // Product
+  "Product Manager",
+  "Product Marketing Manager",
+  "Product Marketing Intern",
+  // Business / Sales
+  "Business Development Representative",
+  "Partner Account Manager",
+  "GTM Strategy & Operations Manager",
+  "Senior Account Executive",
+  "Enterprise Sales Head",
+  // Marketing
+  "AI Website Builder Lead",
+  "AEO / SEO Analyst",
+  "Demand Gen & Growth Associate",
+  "Partner Marketing Specialist",
+  // People
+  "Intern - Talent & Culture",
+  "Lead - Talent Marketing & Acquisition",
+  // Generalist
+  "Founder's Office",
+] as const;
+
+export type PipelineRole = (typeof PIPELINE_ROLES)[number];
+
+export const PIPELINE_STAGES = [
+  "New",
+  "Contacted",
+  "Responded",
+  "Interviewing",
+  "Offer Sent",
+  "Hired",
+  "Rejected",
+] as const;
+
+export type PipelineStage = (typeof PIPELINE_STAGES)[number];
+
 export interface Pipeline {
   id: string;
   name: string;
   description: string;
-  role: string;
+  role: PipelineRole;
 }
 
 export const MOCK_PIPELINES: Pipeline[] = [
   {
     id: "p1",
-    name: "SWE Intern — July 2025",
-    description: "Software engineering interns for the summer cohort.",
-    role: "Software Engineer Intern",
+    name: "Agentic AI Engineer — 2025",
+    description: "Candidates for the Agentic AI Engineer opening.",
+    role: "Agentic AI Engineer",
   },
   {
     id: "p2",
-    name: "Hardware Lead — Q3",
-    description: "Senior hardware/robotics builders for the autonomy team.",
-    role: "Hardware Lead",
+    name: "Software Engineer — 2025",
+    description: "Full-stack and backend engineers for the core platform.",
+    role: "Software Engineer",
   },
   {
     id: "p3",
-    name: "Founders Office — 2025",
+    name: "Founder's Office — 2025",
     description: "High-agency generalists for the founders office.",
-    role: "Founders Office Associate",
+    role: "Founder's Office",
   },
 ];
 
@@ -330,6 +384,7 @@ export const MOCK_CANDIDATES: Candidate[] = [
     degree: "B.Tech",
     branch: "Computer Science",
     graduation_year: 2025,
+    source: "competition_scrape" as CandidateSource,
     linkedin_url: "linkedin.com/in/arjunmehta",
     email: "arjun.mehta@gmail.com",
     email_confidence: "github_profile",
@@ -373,6 +428,7 @@ export const MOCK_CANDIDATES: Candidate[] = [
     degree: "Dual Degree",
     branch: "Electrical Engineering",
     graduation_year: 2024,
+    source: "competition_scrape" as CandidateSource,
     linkedin_url: "linkedin.com/in/priyanair",
     email: "priya.nair@smail.iitm.ac.in",
     email_confidence: "inferred",
@@ -416,6 +472,7 @@ export const MOCK_CANDIDATES: Candidate[] = [
     degree: "B.E.",
     branch: "Computer Science",
     graduation_year: 2026,
+    source: "competition_scrape" as CandidateSource,
     linkedin_url: "linkedin.com/in/rohangupta",
     email: "rohan.g@gmail.com",
     email_confidence: "github_commit",
@@ -457,6 +514,7 @@ export const MOCK_CANDIDATES: Candidate[] = [
     degree: "MBA",
     branch: "Management",
     graduation_year: 2025,
+    source: "competition_scrape" as CandidateSource,
     linkedin_url: "linkedin.com/in/ananyasharma",
     email: null,
     email_confidence: null,
@@ -499,6 +557,7 @@ export const MOCK_CANDIDATES: Candidate[] = [
     degree: "B.Tech",
     branch: "Computer Science",
     graduation_year: 2025,
+    source: "competition_scrape" as CandidateSource,
     linkedin_url: "linkedin.com/in/vikramreddy",
     email: "vikram.reddy@research.iiit.ac.in",
     email_confidence: "inferred",
@@ -518,15 +577,7 @@ export const MOCK_CANDIDATES: Candidate[] = [
         year: 2023,
       },
     ],
-    positions: [
-      {
-        organisation_name: "Felicity IIIT-H",
-        role_title: "Cultural Fest Core Team",
-        por_category: "cultural_fest",
-        year_start: 2022,
-        year_end: 2023,
-      },
-    ],
+    positions: [],
   },
   {
     id: "c6",
@@ -535,6 +586,7 @@ export const MOCK_CANDIDATES: Candidate[] = [
     degree: "B.Tech",
     branch: "Mechanical Engineering",
     graduation_year: 2024,
+    source: "competition_scrape" as CandidateSource,
     linkedin_url: "linkedin.com/in/kavyaiyer",
     email: "kavya.iyer@gmail.com",
     email_confidence: "github_profile",

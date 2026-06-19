@@ -25,12 +25,25 @@ import {
   RESULT_TIERS,
   POR_CATEGORIES,
   ORGANISATIONS,
+  SOURCES,
   type CompetitionCategory,
   type PorCategory,
   type ResultTier,
+  type CandidateSource,
 } from "@/data/talent";
+import { ROLE_FIT_STYLE, type RoleFitLabel } from "@/lib/utils/rolefit";
 import { useSearchContext } from "@/context/SearchContext";
 import { cn } from "@/lib/utils";
+
+const ROLE_FIT_OPTIONS: RoleFitLabel[] = [
+  "Agentic AI Engineer",
+  "Software Engineer",
+  "Product Manager",
+  "Product Marketing",
+  "Founder's Office",
+  "BDR / Sales",
+  "Marketing",
+];
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -82,11 +95,14 @@ export function FilterPanel() {
     filters.por_year_max ?? CURRENT_YEAR,
   ];
 
+  const sources = (filters.sources ?? []) as CandidateSource[];
+  const roleFitLabels = (filters.role_fit_labels ?? []) as RoleFitLabel[];
+
   const toggle = (list: string[], v: string) =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
 
   const standardCount =
-    (name ? 1 : 0) + universities.length + degrees.length + branches.length;
+    (name ? 1 : 0) + universities.length + degrees.length + branches.length + sources.length;
   const builderCount =
     (builderOn ? 1 : 0) + categories.length + competitions.length + tiers.length;
   const agencyCount =
@@ -114,6 +130,46 @@ export function FilterPanel() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        <div className="space-y-2 border-b border-border px-4 py-3">
+          <div className="flex items-center justify-between">
+            <SectionLabel>Role Fit</SectionLabel>
+            {roleFitLabels.length > 0 && (
+              <button
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+                onClick={() => updateFilter("role_fit_labels", [])}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {ROLE_FIT_OPTIONS.map((label) => {
+              const active = roleFitLabels.includes(label);
+              return (
+                <button
+                  key={label}
+                  onClick={() =>
+                    updateFilter(
+                      "role_fit_labels",
+                      (active
+                        ? roleFitLabels.filter((l) => l !== label)
+                        : [...roleFitLabels, label]) as RoleFitLabel[],
+                    )
+                  }
+                  className={cn(
+                    "rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+                    active
+                      ? ROLE_FIT_STYLE[label]
+                      : "border-border bg-background text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <Accordion
           type="multiple"
           defaultValue={["standard", "builder", "agency"]}
@@ -194,6 +250,33 @@ export function FilterPanel() {
                   placeholder="Any branch"
                   searchable={false}
                 />
+              </div>
+
+              <div className="space-y-1.5">
+                <SectionLabel>Source</SectionLabel>
+                <ToggleGroup
+                  type="multiple"
+                  value={sources}
+                  onValueChange={(v) =>
+                    updateFilter("sources", v as CandidateSource[])
+                  }
+                  className="flex flex-wrap gap-1.5"
+                >
+                  {SOURCES.map((s) => (
+                    <ToggleGroupItem
+                      key={s.value}
+                      value={s.value}
+                      className="h-7 border border-border px-2.5 text-xs data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+                    >
+                      {s.label}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+                {sources.length === 0 && (
+                  <p className="text-[10px] text-muted-foreground">
+                    All sources shown. Select to filter.
+                  </p>
+                )}
               </div>
             </AccordionContent>
           </AccordionItem>

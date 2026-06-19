@@ -1,4 +1,5 @@
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, SlidersHorizontal } from "lucide-react";
+import { useState, useCallback } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, SlidersHorizontal, Zap, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -10,6 +11,36 @@ import { CandidateCard } from "./CandidateCard";
 import { BulkActionBar } from "./BulkActionBar";
 import { useSearchContext } from "@/context/SearchContext";
 import { useTalent } from "@/context/TalentContext";
+import { exportStudentCandidatesFn } from "@/lib/api/candidates.functions";
+import type { Candidate } from "@/data/talent";
+
+function candidatesToCsv(candidates: Candidate[]): string {
+  const headers = [
+    "Name", "University", "Degree", "Branch", "Grad Year",
+    "Source", "LinkedIn", "Email", "GitHub",
+    "Competitions", "Positions of Responsibility",
+  ];
+  const escape = (v: unknown) => {
+    const s = v == null ? "" : String(v);
+    return s.includes(",") || s.includes('"') || s.includes("\n")
+      ? `"${s.replace(/"/g, '""')}"`
+      : s;
+  };
+  const rows = candidates.map((c) => [
+    escape(c.full_name),
+    escape(c.university),
+    escape(c.degree),
+    escape(c.branch),
+    escape(c.graduation_year),
+    escape(c.source),
+    escape(c.linkedin_url),
+    escape(c.email),
+    escape(c.github_url),
+    escape(c.competitions.map((x) => x.competition_name).join("; ")),
+    escape(c.positions.map((x) => `${x.role_title} @ ${x.organisation_name}`).join("; ")),
+  ]);
+  return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+}
 
 const SORT_OPTIONS = [
   {
@@ -62,6 +93,69 @@ export function ResultsPanel() {
   } = useSearchContext();
   const { addToPipeline } = useTalent();
 
+  const [exporting, setExporting] = useState(false);
+  const [twitterScraping, setTwitterScraping] = useState(false);
+  const [linkedinScraping, setLinkedinScraping] = useState(false);
+
+  const handleExportCsv = useCallback(async () => {
+    setExporting(true);
+    try {
+      const { page: _p, limit: _l, ...exportFilters } = filters;
+      const result = await exportStudentCandidatesFn({ data: exportFilters });
+      const csv = candidatesToCsv(result.candidates);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `student-candidates-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("CSV export failed:", err);
+      alert("Export failed. Check the console for details.");
+    } finally {
+      setExporting(false);
+    }
+  }, [filters]);
+
+  const handleTwitterScrape = useCallback(async () => {
+    if (!confirm("Start the Twitter competition scraper? It runs in the background and may take several minutes.")) return;
+    setTwitterScraping(true);
+    try {
+      const res = await fetch("/api/scrape/twitter", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        alert("Twitter scraper started in the background. New candidates will appear once it completes.");
+      } else {
+        alert(`Scraper error: ${data.error}`);
+      }
+    } catch (err) {
+      console.error("Twitter scraper trigger failed:", err);
+      alert("Failed to start scraper.");
+    } finally {
+      setTwitterScraping(false);
+    }
+  }, []);
+
+  const handleLinkedinScrape = useCallback(async () => {
+    if (!confirm("Start the LinkedIn Google Search scraper? This will use your Apify quota (~$0.25/run) and run in the background.")) return;
+    setLinkedinScraping(true);
+    try {
+      const res = await fetch("/api/scrape/linkedin", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        alert("LinkedIn scraper started in the background. New candidates will appear once it completes.");
+      } else {
+        alert(`Scraper error: ${data.error}`);
+      }
+    } catch (err) {
+      console.error("LinkedIn scraper trigger failed:", err);
+      alert("Failed to start scraper.");
+    } finally {
+      setLinkedinScraping(false);
+    }
+  }, []);
+
   const totalPages = Math.max(1, Math.ceil(totalCount / limit));
   const currentSort = sortLabel(filters.sort_by, filters.sort_dir);
   const rangeStart = totalCount === 0 ? 0 : page * limit + 1;
@@ -108,8 +202,47 @@ export function ResultsPanel() {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button size="sm" className="h-8 gap-1.5">
-            <Download className="h-4 w-4" />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5"
+            onClick={handleTwitterScrape}
+            disabled={twitterScraping}
+            title="Run Twitter competition scraper"
+          >
+            {twitterScraping ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Zap className="h-4 w-4" />
+            )}
+            Scrape Twitter
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5"
+            onClick={handleLinkedinScrape}
+            disabled={linkedinScraping}
+            title="Run LinkedIn Google Search scraper"
+          >
+            {linkedinScraping ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4" />
+            )}
+            Scrape LinkedIn
+          </Button>
+          <Button
+            size="sm"
+            className="h-8 gap-1.5"
+            onClick={handleExportCsv}
+            disabled={exporting || totalCount === 0}
+          >
+            {exporting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
             Export CSV
           </Button>
         </div>

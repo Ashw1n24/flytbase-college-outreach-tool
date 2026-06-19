@@ -25,7 +25,7 @@ export interface Database {
             | "inferred"
             | null;
           github_url: string | null;
-          source: "competition_scrape" | "manual";
+          source: "competition_scrape" | "google_search" | "twitter" | "linkedin" | "manual";
           created_at: string;
           last_updated: string;
         };
@@ -112,7 +112,7 @@ export interface Database {
           id: string;
           scraper_name: string;
           run_at: string;
-          status: "ok" | "degraded" | "failed";
+          status: "ok" | "degraded" | "failed" | "skipped";
           records_extracted: number;
           records_expected_min: number;
           error_message: string | null;
@@ -138,6 +138,111 @@ export interface Database {
           id?: string;
         };
         Update: Partial<Database["public"]["Tables"]["rate_limit_log"]["Insert"]>;
+      };
+      competitions: {
+        Row: {
+          id: string;
+          name: string;
+          short_name: string | null;
+          type: string | null;
+          role_clusters: string[] | null;
+          twitter_keywords: string[] | null;
+          frequency: string | null;
+          level: "international" | "national" | "regional" | "institute" | null;
+          status: "active" | "inactive";
+          source: "manual" | "auto_detected";
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["competitions"]["Row"],
+          "created_at" | "updated_at"
+        > & { created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["competitions"]["Insert"]>;
+      };
+      flagged_competitions: {
+        Row: {
+          id: string;
+          name: string;
+          raw_keyword: string;
+          source_tweet_url: string | null;
+          source_tweet_text: string | null;
+          source_platform: string;
+          detected_at: string;
+          review_status: "pending" | "approved" | "dismissed";
+          reviewed_at: string | null;
+          competition_id: string | null;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["flagged_competitions"]["Row"],
+          "id" | "detected_at"
+        > & { id?: string; detected_at?: string };
+        Update: Partial<Database["public"]["Tables"]["flagged_competitions"]["Insert"]>;
+      };
+      campaigns: {
+        Row: {
+          id: string;
+          name: string;
+          jd_raw: string;
+          jd_parsed: Json;
+          filters: Json;
+          status: "pending" | "searching" | "done" | "error";
+          candidate_count: number;
+          company_count: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["campaigns"]["Row"],
+          "id" | "created_at" | "updated_at"
+        > & { id?: string; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["campaigns"]["Insert"]>;
+      };
+      experienced_candidates: {
+        Row: {
+          id: string;
+          campaign_id: string;
+          apollo_id: string;
+          full_name: string;
+          title: string | null;
+          headline: string | null;
+          linkedin_url: string | null;
+          email: string | null;
+          company_name: string | null;
+          company_id: string | null;
+          location: string | null;
+          years_experience: number | null;
+          skills: string[];
+          fit_score: number;
+          fit_tier: "strong" | "good" | "partial" | "skip";
+          required_match: boolean;
+          apollo_raw: Json;
+          created_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["experienced_candidates"]["Row"],
+          "id" | "created_at"
+        > & { id?: string; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["experienced_candidates"]["Insert"]>;
+      };
+      campaign_companies: {
+        Row: {
+          id: string;
+          campaign_id: string;
+          apollo_org_id: string;
+          name: string;
+          industry: string | null;
+          employee_count: number | null;
+          linkedin_url: string | null;
+          website: string | null;
+          candidate_count: number;
+          created_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["campaign_companies"]["Row"],
+          "id" | "created_at"
+        > & { id?: string; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["campaign_companies"]["Insert"]>;
       };
     };
     Functions: {

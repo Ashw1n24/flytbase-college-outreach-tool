@@ -1,4 +1,4 @@
-import { Linkedin, Mail, Github, Award, UserCheck } from "lucide-react";
+import { Linkedin, Mail, Github, Award, UserCheck, Sparkles } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   type Candidate,
@@ -9,6 +9,14 @@ import {
 import { useTalent } from "@/context/TalentContext";
 import { AddToPipelineMenu } from "./AddToPipelineMenu";
 import { cn } from "@/lib/utils";
+import { computeRoleFit, ROLE_FIT_STYLE } from "@/lib/utils/rolefit";
+import { computeStudentCultureFit, CULTURE_TIER_META } from "@/lib/utils/culturefit";
+
+function safeUrl(url: string | null): string | null {
+  if (!url) return null;
+  const fixed = url.replace(/^(https?)(\/\/)/, '$1:$2');
+  return /^https?:\/\//i.test(fixed) ? fixed : `https://${fixed}`;
+}
 
 interface Props {
   candidate: Candidate;
@@ -19,6 +27,9 @@ interface Props {
 export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
   const c = candidate;
   const { openDrawer, isInPipeline } = useTalent();
+  const roleFit = computeRoleFit(c);
+  const cultureFit = computeStudentCultureFit(c);
+  const cultureMeta = CULTURE_TIER_META[cultureFit.tier];
   const inPipeline = c.in_pipeline ?? isInPipeline(c.id);
   return (
     <div
@@ -57,7 +68,7 @@ export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
             {c.university} · {c.degree} {c.branch} · Class of {c.graduation_year}
           </p>
         </div>
-        <AddToPipelineMenu candidateId={c.id} />
+        <AddToPipelineMenu candidateId={c.id} suggestedRoleFit={roleFit[0]} />
       </div>
 
       {/* Competitions */}
@@ -102,11 +113,38 @@ export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
         </div>
       )}
 
+      {/* Role Fit + Culture Fit */}
+      <div className="mt-2 flex items-start gap-2">
+        <Sparkles className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <div className="flex flex-wrap gap-1.5">
+          {roleFit.map((role) => (
+            <span
+              key={role}
+              className={cn(
+                "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium",
+                ROLE_FIT_STYLE[role],
+              )}
+            >
+              {role}
+            </span>
+          ))}
+          <span
+            className={cn(
+              "inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium",
+              cultureMeta.className,
+            )}
+            title={`Culture: Agency ${cultureFit.breakdown.agency}/35 · Technical ${cultureFit.breakdown.technical}/30 · Initiative ${cultureFit.breakdown.initiative}/25 · AI ${cultureFit.breakdown.aiNative}/10`}
+          >
+            {cultureMeta.label} · {cultureFit.score}
+          </span>
+        </div>
+      </div>
+
       {/* Contact */}
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border pt-3 text-xs">
         {c.linkedin_url && (
           <a
-            href={`https://${c.linkedin_url}`}
+            href={safeUrl(c.linkedin_url)!}
             target="_blank"
             rel="noreferrer"
             onClick={(e) => e.stopPropagation()}
@@ -134,7 +172,7 @@ export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
         )}
         {c.github_url && (
           <a
-            href={`https://${c.github_url}`}
+            href={safeUrl(c.github_url)!}
             target="_blank"
             rel="noreferrer"
             onClick={(e) => e.stopPropagation()}

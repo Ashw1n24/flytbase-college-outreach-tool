@@ -151,7 +151,7 @@ async function seed() {
   const { error: pipelineError } = await supabase.from("pipelines").upsert(
     {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      name: "SWE Intern — July 2025",
+      name: "Agentic AI Engineer — 2025",
       created_by: "seed",
       candidate_ids: [arjunId],
       notes: "Seeded pipeline with Arjun Mehta (SIH Hardware winner + Techfest PoR).",

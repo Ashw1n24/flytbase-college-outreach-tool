@@ -1,4 +1,4 @@
-import type { Candidate, CompetitionResult, PositionOfResponsibility } from "@/data/talent";
+import type { Candidate, CandidateSource, CompetitionResult, PositionOfResponsibility } from "@/data/talent";
 import type { Database } from "@/types/database";
 
 type CandidateRow = Database["public"]["Tables"]["candidates"]["Row"];
@@ -40,9 +40,10 @@ export function mapCandidate(
     id: row.id,
     full_name: row.full_name,
     university: row.university,
-    degree: row.degree,
-    branch: row.branch,
-    graduation_year: row.graduation_year,
+    degree: row.degree ?? null,
+    branch: row.branch ?? null,
+    graduation_year: row.graduation_year ?? null,
+    source: (row.source ?? "competition_scrape") as CandidateSource,
     linkedin_url: row.linkedin_url,
     email: row.email,
     email_confidence: row.email_confidence,

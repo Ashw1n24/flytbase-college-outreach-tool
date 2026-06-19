@@ -3,6 +3,7 @@ import type {
   PorCategory,
   ResultTier,
 } from "@/data/talent";
+import type { RoleFitLabel } from "@/lib/utils/rolefit";
 
 export type SortField = "name" | "graduation_year" | "competition_count";
 export type SortDirection = "asc" | "desc";
@@ -26,6 +27,8 @@ export interface SearchParams {
   por_leadership_only?: boolean;
   por_year_min?: number;
   por_year_max?: number;
+  sources?: string[];
+  role_fit_labels?: RoleFitLabel[];
   page?: number;
   limit?: number;
   sort_by?: SortField;

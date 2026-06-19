@@ -11,20 +11,35 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useTalent } from "@/context/TalentContext";
+import type { RoleFitLabel } from "@/lib/utils/rolefit";
 import { cn } from "@/lib/utils";
 
 interface Props {
   candidateId: string;
   className?: string;
   size?: "sm" | "default";
+  /** First value from computeRoleFit() for this candidate, used to pre-populate the new pipeline name. */
+  suggestedRoleFit?: RoleFitLabel;
 }
 
-export function AddToPipelineMenu({ candidateId, className, size = "sm" }: Props) {
+export function AddToPipelineMenu({
+  candidateId,
+  className,
+  size = "sm",
+  suggestedRoleFit,
+}: Props) {
   const { pipelines, membership, addToPipeline, createPipeline } = useTalent();
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const currentPipelineId = membership[candidateId];
+
+  const suggestedName = suggestedRoleFit ? `${suggestedRoleFit} Pipeline` : "";
+
+  const handleOpenCreate = () => {
+    setName(suggestedName);
+    setCreating(true);
+  };
 
   const handleCreate = () => {
     const trimmed = name.trim();
@@ -90,7 +105,7 @@ export function AddToPipelineMenu({ candidateId, className, size = "sm" }: Props
                 if (e.key === "Enter") handleCreate();
                 e.stopPropagation();
               }}
-              placeholder="New pipeline name"
+              placeholder="Pipeline name"
               className="h-7 text-xs"
             />
             <Button size="sm" className="h-7 px-2 text-xs" onClick={handleCreate}>
@@ -101,7 +116,7 @@ export function AddToPipelineMenu({ candidateId, className, size = "sm" }: Props
           <DropdownMenuItem
             onSelect={(e) => {
               e.preventDefault();
-              setCreating(true);
+              handleOpenCreate();
             }}
           >
             <FolderPlus className="h-3.5 w-3.5" />

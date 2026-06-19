@@ -8,12 +8,6 @@ import { useDebounce } from "./useDebounce";
 const CURRENT_YEAR = new Date().getFullYear();
 
 export const DEFAULT_SEARCH_PARAMS: SearchParams = {
-  grad_year_min: CURRENT_YEAR - 2,
-  grad_year_max: CURRENT_YEAR + 1,
-  comp_year_min: 2020,
-  comp_year_max: CURRENT_YEAR,
-  por_year_min: 2019,
-  por_year_max: CURRENT_YEAR,
   page: 0,
   limit: 50,
   sort_by: "graduation_year",
@@ -26,6 +20,8 @@ function computeActiveFilterCount(filters: SearchParams): number {
   if (filters.universities?.length) count += filters.universities.length;
   if (filters.degrees?.length) count += filters.degrees.length;
   if (filters.branches?.length) count += filters.branches.length;
+  if (filters.sources?.length) count += filters.sources.length;
+  if (filters.role_fit_labels?.length) count += filters.role_fit_labels.length;
   if (filters.has_competition) count += 1;
   if (filters.competition_categories?.length) {
     count += filters.competition_categories.length;
