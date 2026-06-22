@@ -183,7 +183,17 @@ async function fetchCampaign(id: string) {
 
 export const getCampaignFn = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string().min(1) }))
-  .handler(async ({ data }) => fetchCampaign(data.id));
+  .handler(async ({ data }) => {
+    const campaign = await fetchCampaign(data.id);
+    // Live candidate count — avoids showing stale campaign.candidate_count
+    const supabase = getSupabaseAdmin();
+    const { count } = await supabase
+      .from("experienced_candidates")
+      .select("*", { count: "exact", head: true })
+      .eq("campaign_id", data.id)
+      .neq("fit_tier", "skip");
+    return { ...campaign, candidate_count: count ?? campaign.candidate_count };
+  });
 
 // ---------------------------------------------------------------------------
 // Fetch all campaigns (landing page list)
@@ -193,10 +203,29 @@ async function fetchAllCampaigns() {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("campaigns")
-    .select("id, name, status, candidate_count, company_count, created_at")
+    .select("id, name, status, candidate_count, created_at")
     .order("created_at", { ascending: false });
   if (error) throw new Error(`Failed to fetch campaigns: ${error.message}`);
-  return data ?? [];
+
+  const campaigns = data ?? [];
+  if (campaigns.length === 0) return [];
+
+  // Live company count from campaign_companies (campaigns.company_count is a
+  // denormalized cache that can go stale if an insert fails mid-run)
+  const { data: companyRows } = await supabase
+    .from("campaign_companies")
+    .select("campaign_id")
+    .in("campaign_id", campaigns.map((c) => c.id));
+
+  const companyCountMap = new Map<string, number>();
+  for (const row of companyRows ?? []) {
+    companyCountMap.set(row.campaign_id, (companyCountMap.get(row.campaign_id) ?? 0) + 1);
+  }
+
+  return campaigns.map((c) => ({
+    ...c,
+    company_count: companyCountMap.get(c.id) ?? 0,
+  }));
 }
 
 export const getCampaignsFn = createServerFn({ method: "GET" })
@@ -269,7 +298,9 @@ async function fetchCampaignCompaniesEnriched(campaignId: string) {
     const aStrong = a.tier_counts.strong > 0 ? 1 : 0;
     const bStrong = b.tier_counts.strong > 0 ? 1 : 0;
     if (bStrong !== aStrong) return bStrong - aStrong;
-    return b.candidate_count - a.candidate_count;
+    const aTotal = a.tier_counts.strong + a.tier_counts.good + a.tier_counts.partial;
+    const bTotal = b.tier_counts.strong + b.tier_counts.good + b.tier_counts.partial;
+    return bTotal - aTotal;
   });
 
   return enriched;
@@ -331,7 +362,24 @@ export const getCampaignCandidatesFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => fetchCampaignCandidates(data));
 
 // ---------------------------------------------------------------------------
-// Apify helpers
+// Fetch experienced candidates by IDs (for pipelines page)
+// ---------------------------------------------------------------------------
+
+export const getExpCandidatesByIdsFn = createServerFn({ method: "POST" })
+  .validator(z.object({ ids: z.array(z.string()) }))
+  .handler(async ({ data }) => {
+    if (!data.ids.length) return [];
+    const supabase = getSupabaseAdmin();
+    const { data: rows, error } = await supabase
+      .from("experienced_candidates")
+      .select("id, full_name, current_title, current_company, linkedin_url, email, fit_tier, fit_score, apollo_raw")
+      .in("id", data.ids);
+    if (error) throw new Error(`Failed to fetch experienced candidates: ${error.message}`);
+    return rows ?? [];
+  });
+
+// ---------------------------------------------------------------------------
+// Apify helpers (kept for seed-companies flow only)
 // ---------------------------------------------------------------------------
 
 const APIFY_BASE = "https://api.apify.com/v2";
@@ -463,82 +511,172 @@ async function apifyPost(token: string, path: string, body: unknown): Promise<un
   return res.json();
 }
 
-async function triggerApifyRun(
+// ---------------------------------------------------------------------------
+// Google Search → LinkedIn profiles (via Apify Google Search Scraper)
+// ---------------------------------------------------------------------------
+// Strategy: search Google for `site:linkedin.com/in "Title" "India"` — Google
+// indexes public LinkedIn profiles and returns rich snippets with name, title,
+// company, and location. Much more reliable than LinkedIn's own search (which
+// blocks unauthenticated access) and very cheap (compute-unit billing).
+
+interface GoogleOrganicResult {
+  title?: string;
+  url?: string;
+  description?: string;
+  displayedUrl?: string;
+  position?: number;
+}
+
+interface GoogleSearchDatasetItem {
+  organicResults?: GoogleOrganicResult[];
+  searchQuery?: { term?: string; page?: number };
+}
+
+function parseLinkedInGoogleResult(title: string, snippet: string): {
+  fullName: string | null;
+  currentTitle: string | null;
+  currentCompany: string | null;
+  locationText: string | null;
+} {
+  // Titles look like: "Rahul Sharma - BDR at TechCorp | LinkedIn"
+  // or: "Rahul Sharma - Business Development Representative | LinkedIn"
+  const clean = title.replace(/\s*[|–]\s*LinkedIn\s*$/i, "").trim();
+  const parts = clean.split(/\s+-\s+/);
+
+  const fullName = parts[0]?.trim() || null;
+  let currentTitle: string | null = null;
+  let currentCompany: string | null = null;
+
+  if (parts.length >= 2) {
+    const mid = parts[1]?.trim() ?? "";
+    const atMatch = mid.match(/^(.+?)\s+(?:at|@)\s+(.+)$/i);
+    if (atMatch) {
+      currentTitle = atMatch[1].trim();
+      currentCompany = atMatch[2].trim();
+    } else {
+      currentTitle = mid || null;
+      // Third segment (if present) is often the company
+      if (parts.length >= 3) currentCompany = parts[2].trim() || null;
+    }
+  }
+
+  // Extract location from snippet — look for city+India patterns
+  const locMatch = snippet.match(
+    /([A-Z][a-zÀ-ÖØ-öø-ÿ]+(?:\s+[A-Z][a-zÀ-ÖØ-öø-ÿ]+)*),?\s+(?:India|Maharashtra|Karnataka|Tamil\s*Nadu|Telangana|Delhi|Gujarat|Rajasthan|West\s*Bengal)/i,
+  );
+  const locationText = locMatch ? locMatch[0] : null;
+
+  return { fullName, currentTitle, currentCompany, locationText };
+}
+
+async function searchViaGoogle(
   token: string,
   jdParsed: JdParsed,
   filters: z.infer<typeof campaignFiltersSchema>,
-  companyUrls: string[] = [],
-): Promise<string> {
-  const fn = jdParsed.function ?? "";
-  const level = jdParsed.seniority_label ?? "";
-  const skills = (jdParsed.top_skills ?? []).slice(0, 2);
+  maxResults = 100,
+): Promise<ApifyPerson[]> {
+  const titles = [...new Set((jdParsed.titles ?? []).filter(t => t.length > 2))].slice(0, 6);
+  if (titles.length === 0 && jdParsed.function) titles.push(jdParsed.function);
 
-  const searchQueries = [
-    [level, fn, "India"].filter(Boolean).join(" "),
-    [fn, skills[0], "India"].filter(Boolean).join(" "),
-    [fn, skills[1], "India"].filter(Boolean).join(" "),
-    [level, skills[0], "India"].filter(Boolean).join(" "),
-    [fn, "India"].filter(Boolean).join(" "),
-    [skills[0], skills[1], "India"].filter(Boolean).join(" "),
-  ].filter((q, i, arr) => q.length > 5 && arr.indexOf(q) === i);
+  const locations = buildLocations(filters.locations ?? []);
+  // Use first location (or "India" fallback) in the query; Google's countryCode handles the rest
+  const locationQuery = locations.length > 0 ? `"${locations[0]}"` : '"India"';
 
-  const body: Record<string, unknown> = {
-    searchQueries,
-    locations:          buildLocations(filters.locations ?? []),
-    maxItems:           180,
-    profileScraperMode: "Short",
-    takePages:          3,
-    ...(companyUrls.length ? { currentCompanyUrls: companyUrls } : {}),
+  // Build one query per title: site:linkedin.com/in "Title" "India" -inurl:company
+  const queries = titles
+    .map(t => `site:linkedin.com/in "${t}" ${locationQuery} -inurl:company`)
+    .join("\n");
+
+  const pagesPerQuery = Math.max(1, Math.ceil(maxResults / (titles.length * 10)));
+
+  const body = {
+    queries,
+    maxPagesPerQuery: Math.min(pagesPerQuery, 5),
+    countryCode: "in",
+    languageCode: "en",
   };
 
-  console.log("[Apify input]", JSON.stringify(body, null, 2));
+  console.log("[Google Search input]", { queries: queries.split("\n"), pagesPerQuery });
 
   const runRes = await fetch(
-    `${APIFY_BASE}/acts/${APIFY_ACTOR}/runs?token=${token}&timeoutSecs=600`,
+    `${APIFY_BASE}/acts/apify~google-search-scraper/runs?token=${token}&timeoutSecs=180`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
   );
   if (!runRes.ok) {
     const text = await runRes.text().catch(() => runRes.statusText);
-    throw new Error(`Apify POST /runs → ${runRes.status}: ${text}`);
+    throw new Error(`Google Search Scraper start failed ${runRes.status}: ${text}`);
   }
-  const resp = await runRes.json() as { data?: { id?: string; status?: string } };
+  const runResp = await runRes.json() as { data?: { id?: string } };
+  const runId = runResp?.data?.id;
+  if (!runId) throw new Error("Google Search Scraper did not return a run ID.");
+  console.log("[Google Search] run started:", runId);
 
-  const runId = resp?.data?.id;
-  if (!runId) throw new Error("Apify did not return a run ID.");
-  console.log("[Apify run started]", { runId, status: resp?.data?.status });
-  return runId;
-}
-
-async function pollApifyRun(token: string, runId: string): Promise<void> {
-  const deadline = Date.now() + MAX_POLL_MS;
-  let runStatus: string | undefined = "READY";
-
-  while (runStatus === "READY" || runStatus === "RUNNING") {
+  // Poll until done (target: 30–90s)
+  const deadline = Date.now() + 4 * 60 * 1000;
+  let status: string | undefined = "READY";
+  while (status === "READY" || status === "RUNNING") {
     if (Date.now() >= deadline) {
-      throw new Error(`Apify run ${runId} did not complete within 15 minutes.`);
+      console.warn("[Google Search] timeout — fetching partial results");
+      break;
     }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-    const statusRes = await fetch(
-      `${APIFY_BASE}/actor-runs/${runId}?token=${token}`,
-    );
-    const rawText = await statusRes.text();
-    console.log("[Apify poll raw]", statusRes.status, rawText);
-    let statusData: { data?: { status?: string } } = {};
-    try {
-      statusData = JSON.parse(rawText);
-    } catch (e) {
-      console.error("[JSON.parse failed] raw input:", rawText.slice(0, 500));
-      throw e;
-    }
-    runStatus = statusData?.data?.status;
-    console.log("[Apify poll]", runStatus);
+    await new Promise(r => setTimeout(r, 5_000));
+    const sr = await fetch(`${APIFY_BASE}/actor-runs/${runId}?token=${token}`);
+    const sd = await sr.json() as { data?: { status?: string } };
+    status = sd?.data?.status;
+    console.log("[Google Search poll]", status);
   }
 
-  if (runStatus === "TIMED-OUT") {
-    console.warn("[Apify] Run timed out — fetching partial results");
-  } else if (runStatus !== "SUCCEEDED") {
-    throw new Error(`Apify run ${runId} ended with status: ${runStatus}`);
+  // Fetch dataset items — each item = one SERP page with organicResults[]
+  const datasetRes = await fetch(
+    `${APIFY_BASE}/actor-runs/${runId}/dataset/items?token=${token}&limit=1000`,
+  );
+  if (!datasetRes.ok) {
+    const text = await datasetRes.text().catch(() => datasetRes.statusText);
+    throw new Error(`Google dataset fetch failed ${datasetRes.status}: ${text}`);
   }
+  const rawItems = await datasetRes.json() as GoogleSearchDatasetItem[];
+  const items: GoogleSearchDatasetItem[] = Array.isArray(rawItems) ? rawItems : [];
+  console.log(`[Google Search] ${items.length} SERP pages returned`);
+
+  const seen = new Set<string>();
+  const people: ApifyPerson[] = [];
+
+  for (const item of items) {
+    for (const result of item.organicResults ?? []) {
+      const url = result.url ?? "";
+      // Only /in/ profile URLs, not /company/ pages
+      if (!url.includes("linkedin.com/in/")) continue;
+      if (seen.has(url)) continue;
+      seen.add(url);
+
+      const title = result.title ?? "";
+      const snippet = result.description ?? "";
+      if (!title) continue;
+
+      const parsed = parseLinkedInGoogleResult(title, snippet);
+      if (!parsed.fullName) continue;
+
+      // Extract public identifier from the URL path
+      const inMatch = url.match(/linkedin\.com\/in\/([^/?#]+)/);
+      const publicIdentifier = inMatch?.[1] ?? undefined;
+
+      people.push({
+        publicIdentifier,
+        linkedinUrl:  url,
+        fullName:     parsed.fullName,
+        currentTitle: parsed.currentTitle ?? undefined,
+        company:      parsed.currentCompany ?? undefined,
+        locationText: parsed.locationText ?? undefined,
+        headline:     snippet.slice(0, 300) || undefined,
+      });
+
+      if (people.length >= maxResults) break;
+    }
+    if (people.length >= maxResults) break;
+  }
+
+  console.log(`[Google Search] ${people.length} LinkedIn profiles extracted`);
+  return people;
 }
 
 interface ApifyPerson {
@@ -632,7 +770,7 @@ async function scoreBatch(
   parsedJd: JdParsed,
   offset: number,
 ): Promise<(any & { jd_fit_tier: string; jd_fit_score: number })[]> {
-  const prompt = `You are a senior recruiter scoring candidates for a B2B SaaS company (FlytBase — drone software, global enterprise clients).
+  const prompt = `You are a senior recruiter scoring candidates for a B2B SaaS company (FlytBase — drone software, global enterprise clients). We are hiring in India only.
 
 JOB:
 ${buildJdSummary(parsedJd)}
@@ -643,29 +781,34 @@ SCORING CRITERIA (100 pts total):
 3. Global Client Exposure (25 pts): Managed enterprise accounts across multiple countries, international B2B sales/support, multi-timezone stakeholder coordination.
 4. Smart / Learning Velocity (15 pts): Fast career trajectory, cross-functional ability, top-tier company or education, picked up new domains quickly.
 
-Tiers: strong ≥ 75 | good 50–74 | partial 30–49 | irrelevant < 30
+PENALTIES (deduct from score before determining tier):
+- Location outside India (e.g. USA, UK, Singapore, Dubai, Canada, Australia): −25 pts. If location is blank, assume India.
+- Currently at a very large MNC or global enterprise (Google, Microsoft, Amazon, Meta, Salesforce, Oracle, SAP, Accenture, TCS, Infosys, Wipro, Cognizant, HCL, Capgemini, IBM, McKinsey, BCG, Deloitte, EY, PwC, KPMG, etc.): −15 pts. We need people comfortable with startup ambiguity, not polished MNC processes.
+
+Tiers (after penalties): strong ≥ 75 | good 50–74 | partial 30–49 | irrelevant < 30
 
 CANDIDATES (JSON array):
 ${JSON.stringify(batch.map((p, i) => ({
   i: offset + i,
   title: p.currentTitle ?? p.jobTitle ?? p.headline,
   company: p.company ?? p.currentCompany,
-  snippet: p.searchSnippet?.slice(0, 200),
+  location: p.locationText ?? null,
+  snippet: p.headline?.slice(0, 200),
 })))}
 
 Return a JSON array with one object per candidate in the same order:
-[{ "i": ${offset}, "score": 0-100, "tier": "strong"|"good"|"partial"|"irrelevant", "reason": "one sentence covering strongest signal" }]
+[{ "i": ${offset}, "score": 0-100, "tier": "strong"|"good"|"partial"|"irrelevant", "reason": "max 60 chars: top signal + penalty if any" }]
 Return ONLY the JSON array, no other text.`;
 
   const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5',
-    max_tokens: 2048,
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 4096,
     messages: [{ role: 'user', content: prompt }],
   });
 
   const raw = (response.content[0] as { type: string; text: string }).text
     .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-  let scores: { i: number; score: number; tier: string }[];
+  let scores: { i: number; score: number; tier: string; reason?: string }[];
   try {
     scores = JSON.parse(raw);
   } catch (e) {
@@ -673,13 +816,25 @@ Return ONLY the JSON array, no other text.`;
     throw e;
   }
 
-  console.log(`[Claude scoring batch offset=${offset}]`, scores.map(s => `#${s.i} ${s.tier} ${s.score}`).join(', '));
+  // Derive tier from numeric score — Claude's tier string is sometimes inconsistent
+  const deriveTier = (score: number): 'strong' | 'good' | 'partial' | 'irrelevant' => {
+    if (score >= 75) return 'strong';
+    if (score >= 50) return 'good';
+    if (score >= 30) return 'partial';
+    return 'irrelevant';
+  };
 
-  return batch.map((p, i) => ({
-    ...p,
-    jd_fit_tier:  scores[i]?.tier  ?? 'partial',
-    jd_fit_score: scores[i]?.score ?? 50,
-  }));
+  console.log(`[Claude scoring batch offset=${offset}]`, scores.map(s => `#${s.i} ${deriveTier(s.score)} ${s.score}`).join(', '));
+
+  return batch.map((p, i) => {
+    const score = scores[i]?.score ?? 0;
+    return {
+      ...p,
+      jd_fit_tier:   deriveTier(score),
+      jd_fit_score:  score,
+      jd_fit_reason: scores[i]?.reason ?? '',
+    };
+  });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -717,10 +872,8 @@ async function scoreCandidates(
 // Server function
 // ---------------------------------------------------------------------------
 
-async function runApifySearch(campaignId: string): Promise<{ candidateCount: number; companyCount: number }> {
+async function runApifySearch(campaignId: string, maxResults = 100): Promise<{ candidateCount: number; companyCount: number }> {
   const supabase = getSupabaseAdmin();
-  const apifyKey = process.env.APIFY_API_KEY;
-  if (!apifyKey) throw new Error("Missing APIFY_API_KEY in environment.");
 
   const campaign = await fetchCampaign(campaignId);
   const jdParsed = campaign.jd_parsed as unknown as JdParsed;
@@ -729,33 +882,28 @@ async function runApifySearch(campaignId: string): Promise<{ candidateCount: num
   await supabase.from("campaigns").update({ status: "searching" }).eq("id", campaignId);
 
   try {
-    const { data: targetCompanies } = await supabase
-      .from("target_companies")
-      .select("name, linkedin_url")
-      .eq("is_active", true)
-      .limit(20);
+    // Phase 1: fetch candidates via Google Search → LinkedIn profiles
+    const apifyKey = process.env.APIFY_API_KEY ?? process.env.APIFY_TOKEN;
+    if (!apifyKey) throw new Error("Missing APIFY_API_KEY in environment. Add it to .env");
+    const people = await searchViaGoogle(apifyKey, jdParsed, filters, maxResults);
 
-    const companyUrls = targetCompanies
-      ?.map((c) => c.linkedin_url)
-      .filter(Boolean) ?? [];
+    // Phase 2: Claude scoring
+    await supabase.from("campaigns").update({ status: "scoring" }).eq("id", campaignId);
 
-    console.log(`[target companies] ${companyUrls.length} active companies loaded`);
+    console.log(`[Google→LinkedIn profiles: ${people.length}]`, people.slice(0, 2));
 
-    const runId = await triggerApifyRun(apifyKey, jdParsed, filters, companyUrls);
-    await pollApifyRun(apifyKey, runId);
-
-    const itemsResp = await apifyGet(apifyKey, `/actor-runs/${runId}/dataset/items`) as ApifyPerson[];
-    const people: ApifyPerson[] = Array.isArray(itemsResp) ? itemsResp : [];
-    console.log(`[Apify dataset items: ${people.length}]`, people.slice(0, 2));
+    // Filter: drop results with no identifying info
+    const personResults = people.filter((p) => !!(p.fullName || p.linkedinUrl));
+    console.log(`[pre-filter] ${personResults.length}/${people.length} valid person results`);
 
     const seen = new Set<string>();
-    const uniquePeople = people.filter(p => {
+    const uniquePeople = personResults.filter(p => {
       const key = p.publicIdentifier ?? p.linkedinUrl;
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
     });
-    console.log(`[Dedup] ${uniquePeople.length}/${people.length} unique candidates`);
+    console.log(`[Dedup] ${uniquePeople.length}/${personResults.length} unique candidates`);
 
     const scoredPeople = await scoreCandidates(uniquePeople, jdParsed);
     const relevantPeople = scoredPeople.filter(p => p.jd_fit_tier !== 'irrelevant');
@@ -764,21 +912,67 @@ async function runApifySearch(campaignId: string): Promise<{ candidateCount: num
     type CompanyEntry = { apollo_org_id: string; company_name: string; count: number };
     const companyMap = new Map<string, CompanyEntry>();
 
-    const validPeople = relevantPeople.filter(p => p.fullName ?? p.searchTitle);
+    // Deduplication: fetch LinkedIn URLs from OTHER campaigns only.
+    // This campaign's own rows will be cleared below, so we don't dedupe against them.
+    const { data: existingRows } = await supabase
+      .from("experienced_candidates")
+      .select("linkedin_url")
+      .not("linkedin_url", "is", null)
+      .neq("campaign_id", campaignId);
+    const existingUrls = new Set((existingRows ?? []).map((r) => r.linkedin_url as string));
+    console.log(`[dedup] ${existingUrls.size} LinkedIn URLs in other campaigns`);
+
+    // Blacklist: filter out company-page results + already-seen candidates.
+    // IMPORTANT: Only apply company-name heuristic to fullName (a proper person name field).
+    // Do NOT check searchTitle — it includes job title + company like "BDR at TechSolutions Pvt Ltd"
+    // which would incorrectly blacklist real candidates at companies with common words in their name.
+    const COMPANY_WORDS = /\b(pvt|ltd|limited|llp|inc|corp|corporation)\b/i;
+    // Explicit non-India location signals in title, location, or snippet
+    const NON_INDIA_GEO = /\b(usa|united states|u\.s\.a|new york|san francisco|seattle|boston|austin|chicago|los angeles|uk|united kingdom|london|manchester|singapore|dubai|uae|abu dhabi|canada|toronto|vancouver|australia|sydney|melbourne|germany|netherlands|france|europe)\b/i;
+
+    const validPeople = relevantPeople.filter((p) => {
+      const fullName: string = p.fullName ?? "";
+      const displayName: string = fullName || p.searchTitle || "";
+      if (!displayName) return false;
+      // Only apply company-word check to fullName — never to searchTitle
+      if (fullName && COMPANY_WORDS.test(fullName)) {
+        console.log(`[blacklist] skipping company-named result: "${fullName}"`);
+        return false;
+      }
+      const linkedinUrl: string | null = p.linkedinUrl ?? p.url ?? null;
+      if (linkedinUrl && existingUrls.has(linkedinUrl)) {
+        console.log(`[dedup] skipping already-seen: "${displayName}" (${linkedinUrl})`);
+        return false;
+      }
+      // Drop candidates whose location or headline explicitly shows a non-India country
+      const geoText = `${p.locationText ?? ''} ${p.headline ?? ''}`;
+      if (NON_INDIA_GEO.test(geoText)) {
+        console.log(`[geo-filter] skipping non-India: "${displayName}" (${p.locationText ?? 'no loc'})`);
+        return false;
+      }
+      return true;
+    });
+    console.log(`[after dedup+blacklist] ${validPeople.length} candidates remaining`);
+
+    // Phase 3: saving
+    await supabase.from("campaigns").update({ status: "saving" }).eq("id", campaignId);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const candidateRows = validPeople.map((p: any) => {
       const locText: string = p.locationText ?? '';
       const locParts = locText.split(',').map((s: string) => s.trim());
+      // Prefer fullName; fall back to searchTitle only if fullName is absent
+      const resolvedName = p.fullName || p.searchTitle || null;
       return {
         campaign_id:        campaignId,
         apollo_id:          p.publicIdentifier ?? p.linkedinUrl ?? p.url,
-        full_name:          p.fullName ?? p.searchTitle ?? null,
+        full_name:          resolvedName,
         current_title:      p.currentTitle ?? p.jobTitle ?? p.headline ?? null,
         current_company:    p.company ?? p.currentCompany ?? null,
         current_department: null,
         linkedin_url:       p.linkedinUrl ?? p.url ?? null,
-        email:              null,
+        // Apollo returns email directly (may be null on free plan — still pass through)
+        email:              (p as unknown as { email?: string | null }).email ?? null,
         phone:              null,
         location_city:      locParts[0] || null,
         location_state:     locParts[1] || null,
@@ -791,6 +985,12 @@ async function runApifySearch(campaignId: string): Promise<{ candidateCount: num
         fit_score:          p.jd_fit_score,
         required_match:     false,
         nice_to_have_count: 0,
+        // Store fit reason + key Apify fields in apollo_raw for tooltip display
+        apollo_raw: {
+          _fit_reason:    p.jd_fit_reason ?? null,
+          locationText:   p.locationText ?? null,
+          searchSnippet:  p.headline ?? null,
+        },
       };
     });
 
@@ -811,15 +1011,35 @@ async function runApifySearch(campaignId: string): Promise<{ candidateCount: num
 
     console.log("[candidate row sample]", candidateRows[0]);
 
+    const companyRows = [...companyMap.values()].map((c) => ({
+      campaign_id:   campaignId,
+      apollo_org_id: c.apollo_org_id,
+      company_name:  c.company_name,
+    }));
+
+    // Clear existing rows for this campaign before fresh insert (clean re-run)
+    const { error: delCandErr } = await supabase
+      .from("experienced_candidates")
+      .delete()
+      .eq("campaign_id", campaignId);
+    if (delCandErr) console.warn("[delete] candidates:", delCandErr.message);
+
+    const { error: delCompErr } = await supabase
+      .from("campaign_companies")
+      .delete()
+      .eq("campaign_id", campaignId);
+    if (delCompErr) console.warn("[delete] companies:", delCompErr.message);
+
     if (candidateRows.length > 0) {
       const CHUNK = 50;
       for (let start = 0; start < candidateRows.length; start += CHUNK) {
         const chunk = candidateRows.slice(start, start + CHUNK);
         const { error: candErr } = await supabase
           .from("experienced_candidates")
-          .upsert(chunk, { onConflict: "campaign_id,apollo_id" });
+          .insert(chunk);
         if (candErr) {
-          console.error(`[upsert] candidates offset=${start} failed:`, candErr.message);
+          console.error(`[insert] candidates offset=${start} failed:`, candErr.message);
+          throw new Error(`Failed to insert candidates: ${candErr.message}`);
         }
       }
     }
@@ -830,9 +1050,10 @@ async function runApifySearch(campaignId: string): Promise<{ candidateCount: num
         const chunk = companyRows.slice(start, start + CHUNK);
         const { error: compErr } = await supabase
           .from("campaign_companies")
-          .upsert(chunk, { onConflict: "campaign_id,apollo_org_id" });
+          .insert(chunk);
         if (compErr) {
-          console.error(`[upsert] companies offset=${start} failed:`, compErr.message);
+          console.error(`[insert] companies offset=${start} failed:`, compErr.message);
+          // Non-fatal — candidates already inserted; log and continue
         }
       }
     }
@@ -853,8 +1074,8 @@ async function runApifySearch(campaignId: string): Promise<{ candidateCount: num
 }
 
 export const searchExperiencedCandidatesFn = createServerFn({ method: "POST" })
-  .validator(z.object({ campaignId: z.string().min(1) }))
-  .handler(async ({ data }) => runApifySearch(data.campaignId));
+  .validator(z.object({ campaignId: z.string().min(1), maxResults: z.number().int().min(10).max(300).default(100) }))
+  .handler(async ({ data }) => runApifySearch(data.campaignId, data.maxResults));
 
 // ---------------------------------------------------------------------------
 // Seed target companies

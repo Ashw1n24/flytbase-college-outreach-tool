@@ -35,6 +35,7 @@ function MasterDatabase() {
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<FitTier | "">("");
   const [campaignFilter, setCampaignFilter] = useState("");
+  const [scoreMin, setScoreMin] = useState(0);
 
   const { data: candidates, isLoading, error } = useQuery({
     queryKey: ["all-candidates"],
@@ -56,6 +57,7 @@ function MasterDatabase() {
     return candidates.filter((c) => {
       if (tierFilter && c.fit_tier !== tierFilter) return false;
       if (campaignFilter && c.campaign_id !== campaignFilter) return false;
+      if (scoreMin > 0 && (c.fit_score ?? 0) < scoreMin) return false;
       if (q) {
         const hay = [c.full_name, c.current_title, c.current_company, c.campaign_name]
           .filter(Boolean).join(" ").toLowerCase();
@@ -63,7 +65,7 @@ function MasterDatabase() {
       }
       return true;
     });
-  }, [candidates, search, tierFilter, campaignFilter]);
+  }, [candidates, search, tierFilter, campaignFilter, scoreMin]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -177,6 +179,24 @@ function MasterDatabase() {
             ))}
           </div>
 
+          {/* Score filter */}
+          <div className="flex gap-1">
+            {([0, 30, 50, 75] as const).map((min) => (
+              <button
+                key={min}
+                onClick={() => setScoreMin(min)}
+                className={cn(
+                  "h-8 px-3 rounded-md text-xs border transition-colors",
+                  scoreMin === min
+                    ? "bg-foreground text-background border-foreground"
+                    : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40",
+                )}
+              >
+                {min === 0 ? "Any score" : `${min}+`}
+              </button>
+            ))}
+          </div>
+
           {/* Campaign filter */}
           <select
             value={campaignFilter}
@@ -189,9 +209,9 @@ function MasterDatabase() {
             ))}
           </select>
 
-          {(search || tierFilter || campaignFilter) && (
+          {(search || tierFilter || campaignFilter || scoreMin > 0) && (
             <button
-              onClick={() => { setSearch(""); setTierFilter(""); setCampaignFilter(""); }}
+              onClick={() => { setSearch(""); setTierFilter(""); setCampaignFilter(""); setScoreMin(0); }}
               className="h-8 px-3 rounded-md text-xs text-muted-foreground hover:text-foreground border border-border transition-colors"
             >
               Clear

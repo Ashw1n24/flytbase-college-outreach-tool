@@ -14,8 +14,11 @@ import {
   Linkedin,
   Mail,
   UserSearch,
+  Zap,
+  DollarSign,
 } from "lucide-react";
 import { TopNav } from "@/components/talent/TopNav";
+import { AddToPipelineMenu } from "@/components/talent/AddToPipelineMenu";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import {
@@ -38,6 +41,14 @@ import {
   getCampaignCandidatesFn,
   searchExperiencedCandidatesFn,
 } from "@/lib/api/experienced.functions";
+import { getApifyCreditsFn } from "@/lib/api/health.functions";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/experienced/$campaignId")({
   head: () => ({
@@ -97,13 +108,14 @@ interface Candidate {
   campaign_id: string;
   apollo_id: string;
   full_name: string;
-  title: string | null;
-  headline: string | null;
+  current_title: string | null;
+  current_company: string | null;
   linkedin_url: string | null;
   email: string | null;
-  company_name: string | null;
   company_id: string | null;
-  location: string | null;
+  location_city: string | null;
+  location_state: string | null;
+  location_country: string | null;
   years_experience: number | null;
   skills: string[];
   fit_score: number;
@@ -155,7 +167,8 @@ function buildFilterChips(filters: CampaignFilters, jdParsed: JdParsed): string[
   const industries = filters.industries?.filter((i) => i !== "Any Industry") ?? [];
   if (industries.length) chips.push(...industries.slice(0, 2));
   if (filters.company_sizes?.length) chips.push(...filters.company_sizes.slice(0, 2));
-  if (filters.domains?.length) chips.push(...filters.domains.slice(0, 2));
+  // NOTE: intentionally NOT showing filters.domains — it's auto-derived from
+  // required_skills and is not a meaningful user-set filter chip.
   return chips;
 }
 
@@ -380,6 +393,7 @@ function CandidateCard({
   const [expanded, setExpanded] = useState(false);
 
   const tier = TIER_META[candidate.fit_tier];
+  const fitReason = (candidate.apollo_raw as Record<string, unknown> | null)?._fit_reason as string | null;
 
   // Categorise each skill
   const requiredSet = new Set(requiredSkills.map((s) => s.toLowerCase()));
@@ -413,8 +427,12 @@ function CandidateCard({
         }));
     })();
 
+  const locationParts = [candidate.location_city, candidate.location_state, candidate.location_country]
+    .filter(Boolean)
+    .slice(0, 2);
+
   const metaParts = [
-    candidate.location,
+    locationParts.join(", ") || null,
     candidate.years_experience != null
       ? `${candidate.years_experience} yrs exp`
       : null,
@@ -427,23 +445,31 @@ function CandidateCard({
         <div className="min-w-0">
           <h3 className="text-sm font-semibold truncate">{candidate.full_name}</h3>
           <p className="mt-0.5 text-[11px] text-muted-foreground truncate">
-            {[candidate.title, candidate.company_name].filter(Boolean).join(" · ")}
+            {[candidate.current_title, candidate.current_company].filter(Boolean).join(" @ ")}
           </p>
         </div>
-        <span
-          className={cn(
-            "shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-            tier.badge,
-          )}
-        >
-          {tier.label}
-        </span>
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {expanded ? "Less" : "More"}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <span
+            className={cn(
+              "rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide cursor-default",
+              tier.badge,
+            )}
+            title={fitReason ?? undefined}
+          >
+            {tier.label} · {candidate.fit_score}
+          </span>
+          <AddToPipelineMenu
+            candidateId={candidate.id}
+            candidateType="experienced"
+            size="sm"
+          />
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {expanded ? "Less" : "More"}
+          </button>
+        </div>
       </div>
 
       {/* Metadata row */}
@@ -484,20 +510,14 @@ function CandidateCard({
       {expanded && (
         <div className="space-y-3 pt-1 text-[11px] text-muted-foreground">
           <div>
-            <span className="font-semibold text-foreground">Headline</span>
-            <p className="mt-0.5 leading-relaxed">{candidate.headline ?? "—"}</p>
+            <span className="font-semibold text-foreground">Current Role</span>
+            <p className="mt-0.5 leading-relaxed">
+              {[candidate.current_title, candidate.current_company].filter(Boolean).join(" @ ") || "—"}
+            </p>
           </div>
           <div>
             <span className="font-semibold text-foreground">Email</span>
             <p className="mt-0.5">{candidate.email ?? "—"}</p>
-          </div>
-          <div>
-            <span className="font-semibold text-foreground">Raw profile</span>
-            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/60 p-2">
-              {candidate.apollo_raw
-                ? JSON.stringify(candidate.apollo_raw, null, 2)
-                : "—"}
-            </pre>
           </div>
         </div>
       )}
@@ -782,6 +802,148 @@ function CandidateFilterBar({
 }
 
 // ---------------------------------------------------------------------------
+// Search progress indicator
+// ---------------------------------------------------------------------------
+
+const SEARCH_STEPS: {
+  id: string;
+  label: string;
+  detail: string;
+  activeStatuses: string[];
+}[] = [
+  {
+    id: "search",
+    label: "LinkedIn search",
+    detail: "Scraping matching profiles via Apify",
+    activeStatuses: ["pending", "searching"],
+  },
+  {
+    id: "score",
+    label: "AI scoring",
+    detail: "Claude Haiku evaluating each candidate",
+    activeStatuses: ["scoring"],
+  },
+  {
+    id: "save",
+    label: "Saving results",
+    detail: "Writing candidates to database",
+    activeStatuses: ["saving"],
+  },
+];
+
+// Estimated durations per status phase (ms). These drive the animated fill.
+const PHASE_DURATION_MS: Record<string, number> = {
+  pending:   5_000,
+  searching: 90_000,
+  scoring:   35_000,
+  saving:    8_000,
+};
+
+// Where the progress bar starts and ends for each phase (0–100).
+const PHASE_RANGE: Record<string, [number, number]> = {
+  pending:   [2,  8],
+  searching: [8,  62],
+  scoring:   [64, 86],
+  saving:    [88, 97],
+};
+
+function SearchProgress({ status }: { status: string }) {
+  const activeIndex = SEARCH_STEPS.findIndex((s) => s.activeStatuses.includes(status));
+
+  const [progress, setProgress] = useState<number>(() => PHASE_RANGE[status]?.[0] ?? 2);
+
+  useEffect(() => {
+    const [start, end] = PHASE_RANGE[status] ?? [2, 50];
+    const duration = PHASE_DURATION_MS[status] ?? 30_000;
+    setProgress(start);
+
+    const TICK_MS = 400;
+    const steps = duration / TICK_MS;
+    const increment = (end - start) / steps;
+    let current = start;
+
+    const id = setInterval(() => {
+      current = Math.min(current + increment, end);
+      setProgress(current);
+      if (current >= end) clearInterval(id);
+    }, TICK_MS);
+
+    return () => clearInterval(id);
+  }, [status]);
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-6 space-y-5">
+      <div className="flex items-center gap-2">
+        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+        <span className="text-sm font-medium">
+          {activeIndex >= 0 ? SEARCH_STEPS[activeIndex].label : "Running search"}…
+        </span>
+      </div>
+
+      {/* Overall progress bar */}
+      <div className="space-y-1.5">
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-primary transition-all duration-300"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground tabular-nums">
+          <span>
+            {status === "searching" && "Scraping LinkedIn via Google Search…"}
+            {status === "scoring"   && "Claude Haiku evaluating each candidate…"}
+            {status === "saving"    && "Writing candidates to database…"}
+            {status === "pending"   && "Starting search…"}
+          </span>
+          <span>{Math.round(progress)}%</span>
+        </div>
+      </div>
+
+      {/* Steps */}
+      <ol className="space-y-3">
+        {SEARCH_STEPS.map((step, i) => {
+          const isActive = i === activeIndex;
+          const isDone = activeIndex > i;
+          return (
+            <li key={step.id} className="flex items-start gap-3">
+              <span
+                className={cn(
+                  "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[10px] font-bold",
+                  isDone
+                    ? "border-ok bg-ok/15 text-ok"
+                    : isActive
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground/50",
+                )}
+              >
+                {isDone ? "✓" : i + 1}
+              </span>
+              <div>
+                <p
+                  className={cn(
+                    "text-sm font-medium",
+                    isDone
+                      ? "text-ok line-through decoration-ok/50"
+                      : isActive
+                      ? "text-foreground"
+                      : "text-muted-foreground/50",
+                  )}
+                >
+                  {step.label}
+                </p>
+                {isActive && (
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{step.detail}</p>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Candidate view
 // ---------------------------------------------------------------------------
 
@@ -886,14 +1048,183 @@ function CandidateView({
 }
 
 // ---------------------------------------------------------------------------
+// Run-search confirmation dialog with credit panel + result count slider
+// ---------------------------------------------------------------------------
+
+// Apify LinkedIn Short-mode costs roughly $0.025 per result (empirical estimate)
+const COST_PER_RESULT = 0.025;
+
+function RunSearchDialog({
+  open,
+  onClose,
+  onConfirm,
+  isPending,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (maxResults: number) => void;
+  isPending: boolean;
+}) {
+  const [maxResults, setMaxResults] = useState(100);
+
+  const { data: credits } = useQuery({
+    queryKey: ["apify-credits"],
+    queryFn: () => getApifyCreditsFn(),
+    staleTime: 2 * 60 * 1000,
+    enabled: open,
+  });
+
+  const estimatedCost = maxResults * COST_PER_RESULT;
+  const remaining = credits?.remainingUsd ?? null;
+  const afterRun = remaining !== null ? remaining - estimatedCost : null;
+  const tooExpensive = remaining !== null && estimatedCost > remaining;
+  const usedPct = credits?.totalUsd && credits?.usedUsd
+    ? (credits.usedUsd / credits.totalUsd) * 100
+    : null;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4" />
+            Configure Search Run
+          </DialogTitle>
+          <DialogDescription>
+            Adjust how many LinkedIn profiles to scrape. Fewer results = lower cost.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-5 pt-1">
+          {/* Apify credit panel */}
+          <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Zap className="h-4 w-4 text-primary" />
+              Apify Credits
+            </div>
+
+            {credits?.totalUsd !== null && credits?.totalUsd !== undefined ? (
+              <>
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Monthly usage</span>
+                    <span>
+                      ${(credits.usedUsd ?? 0).toFixed(2)} / ${credits.totalUsd.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all",
+                        (usedPct ?? 0) >= 80 ? "bg-warn" : "bg-primary",
+                      )}
+                      style={{ width: `${Math.min(usedPct ?? 0, 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded bg-muted/50 px-3 py-2 text-center">
+                    <p className={cn("text-sm font-semibold tabular-nums", tooExpensive && "text-fail")}>
+                      ${(remaining ?? 0).toFixed(2)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">Remaining</p>
+                  </div>
+                  <div className={cn("rounded px-3 py-2 text-center", tooExpensive ? "bg-fail/10" : "bg-ok/10")}>
+                    <p className={cn("text-sm font-semibold tabular-nums", tooExpensive ? "text-fail" : "text-ok")}>
+                      {afterRun !== null ? `$${afterRun.toFixed(2)}` : "—"}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">After run</p>
+                  </div>
+                </div>
+                {tooExpensive && (
+                  <p className="text-xs text-fail">
+                    Estimated cost exceeds remaining credits. Reduce results or top up.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {credits?.configured === false
+                  ? "APIFY_API_KEY not configured."
+                  : "Loading credit info…"}
+              </p>
+            )}
+          </div>
+
+          {/* Result count slider */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Results to scrape</p>
+                <p className="text-xs text-muted-foreground">
+                  Estimated cost: ~${estimatedCost.toFixed(2)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-lg font-semibold tabular-nums">{maxResults}</p>
+                <p className="text-[10px] text-muted-foreground">profiles</p>
+              </div>
+            </div>
+
+            <Slider
+              min={20}
+              max={300}
+              step={10}
+              value={[maxResults]}
+              onValueChange={([v]) => setMaxResults(v)}
+            />
+
+            <div className="flex justify-between text-[10px] text-muted-foreground">
+              <span>20 (~$0.50)</span>
+              <span>100 (~$2.50)</span>
+              <span>200 (~$5.00)</span>
+              <span>300 (~$7.50)</span>
+            </div>
+          </div>
+
+          {/* Cost summary */}
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-xs text-muted-foreground">
+            <DollarSign className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              LinkedIn Short-mode ≈ $0.025/profile · only India-filtered profiles are scored by Claude
+            </span>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" size="sm" onClick={onClose} disabled={isPending}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="gap-1.5"
+              onClick={() => onConfirm(maxResults)}
+              disabled={isPending || tooExpensive}
+            >
+              {isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              {isPending ? "Running…" : `Run Search (${maxResults} profiles)`}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page component
 // ---------------------------------------------------------------------------
 
 function CampaignDetail() {
   const { campaignId } = Route.useParams();
   const [jdExpanded, setJdExpanded] = useState(false);
-  // null = company view; "all" or orgId string = candidate view
-  const [candidateView, setCandidateView] = useState<string | "all" | null>(null);
+  // null = company view; "all" or orgId string = candidate view; default to candidates
+  const [candidateView, setCandidateView] = useState<string | "all" | null>("all");
+  const [runDialogOpen, setRunDialogOpen] = useState(false);
 
   const {
     data: campaign,
@@ -903,15 +1234,20 @@ function CampaignDetail() {
   } = useQuery({
     queryKey: ["campaign", campaignId],
     queryFn: () => getCampaignFn({ data: { id: campaignId } }),
-    refetchInterval: (q) =>
-      q.state.data?.status === "pending" || q.state.data?.status === "searching"
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return s === "pending" || s === "searching" || s === "scoring" || s === "saving"
         ? 3000
-        : false,
+        : false;
+    },
     staleTime: 5_000,
   });
 
   const searching =
-    campaign?.status === "pending" || campaign?.status === "searching";
+    campaign?.status === "pending" ||
+    campaign?.status === "searching" ||
+    campaign?.status === "scoring" ||
+    campaign?.status === "saving";
   const done = campaign?.status === "done";
 
   const { data: companies = [], isLoading: companiesLoading, refetch: refetchCompanies } =
@@ -923,16 +1259,45 @@ function CampaignDetail() {
     });
 
   const { mutate: runSearch, isPending: triggeringSearch, error: searchError } = useMutation({
-    mutationFn: () => searchExperiencedCandidatesFn({ data: { campaignId } }),
+    mutationFn: (maxResults: number) =>
+      searchExperiencedCandidatesFn({ data: { campaignId, maxResults } }),
     onSuccess: () => {
+      setRunDialogOpen(false);
       refetchCampaign();
       refetchCompanies();
     },
   });
 
+  const handleRunConfirm = (maxResults: number) => {
+    setCandidateView(null);
+    runSearch(maxResults);
+  };
+
+  // Auto-start for newly created campaigns (status = "pending")
   useEffect(() => {
-    if (campaign?.status === "pending") runSearch();
+    if (campaign?.status === "pending") {
+      setCandidateView(null); // show progress bar, not stale candidate list
+      runSearch(100);
+    }
   }, [campaign?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When a search finishes (done + candidateView still null from the search), open candidates
+  useEffect(() => {
+    if (done && candidateView === null) setCandidateView("all");
+  }, [done]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll for status updates while a search is in-flight.
+  // The refetchInterval on the campaign query only fires when status is already
+  // "searching"/"scoring"/"saving", but immediately after clicking Re-run the status
+  // is still "done" — so refetchInterval returns false and we'd never pick up the
+  // transition. This effect bridges that gap.
+  useEffect(() => {
+    if (!triggeringSearch) return;
+    // Immediate first poll to pick up "searching" status as fast as possible
+    refetchCampaign();
+    const id = setInterval(() => refetchCampaign(), 3_000);
+    return () => clearInterval(id);
+  }, [triggeringSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const jdParsed = campaign?.jd_parsed as unknown as JdParsed | undefined;
   const campaignFilters = campaign?.filters as unknown as CampaignFilters | undefined;
@@ -940,8 +1305,8 @@ function CampaignDetail() {
     (campaign as unknown as Record<string, unknown>)?.jd_raw as string ?? "";
   const candidateCount =
     (campaign as unknown as Record<string, unknown>)?.candidate_count as number ?? 0;
-  const companyCount =
-    (campaign as unknown as Record<string, unknown>)?.company_count as number ?? 0;
+  // Derive from the live query, not the stale campaign.company_count field
+  const companyCount = companiesLoading ? 0 : companies.length;
 
   const filterChips =
     jdParsed && campaignFilters
@@ -998,7 +1363,7 @@ function CampaignDetail() {
                     variant="outline"
                     size="sm"
                     className="h-8 gap-1.5 text-xs shrink-0"
-                    onClick={() => { setCandidateView(null); runSearch(); }}
+                    onClick={() => setRunDialogOpen(true)}
                     disabled={triggeringSearch}
                   >
                     <RefreshCw
@@ -1048,7 +1413,7 @@ function CampaignDetail() {
               )}
 
               {/* Counts + view toggle */}
-              {done && candidateView === null && (
+              {done && (
                 <div className="flex items-center gap-4">
                   <div className="flex gap-6 text-sm">
                     <span>
@@ -1064,10 +1429,13 @@ function CampaignDetail() {
                     variant="outline"
                     size="sm"
                     className="ml-auto h-8 gap-1.5 text-xs"
-                    onClick={() => setCandidateView("all")}
+                    onClick={() => setCandidateView(candidateView === null ? "all" : null)}
                   >
-                    View All Candidates
-                    <ArrowRight className="h-3.5 w-3.5" />
+                    {candidateView === null ? (
+                      <>View All Candidates <ArrowRight className="h-3.5 w-3.5" /></>
+                    ) : (
+                      <>View Companies <ArrowRight className="h-3.5 w-3.5" /></>
+                    )}
                   </Button>
                 </div>
               )}
@@ -1093,19 +1461,9 @@ function CampaignDetail() {
               />
             )}
 
-            {/* ── Searching skeleton ──────────────────────────────────── */}
-            {searching && candidateView === null && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Searching Apollo for matching candidates…
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <CompanyCardSkeleton key={i} />
-                  ))}
-                </div>
-              </div>
+            {/* ── Searching progress ──────────────────────────────────── */}
+            {searching && (
+              <SearchProgress status={campaign?.status ?? "searching"} />
             )}
 
             {/* ── Company grid ────────────────────────────────────────── */}
@@ -1123,7 +1481,7 @@ function CampaignDetail() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => runSearch()}
+                    onClick={() => setRunDialogOpen(true)}
                     disabled={triggeringSearch}
                     className="gap-1.5"
                   >
@@ -1146,6 +1504,13 @@ function CampaignDetail() {
           </>
         )}
       </div>
+
+      <RunSearchDialog
+        open={runDialogOpen}
+        onClose={() => setRunDialogOpen(false)}
+        onConfirm={handleRunConfirm}
+        isPending={triggeringSearch}
+      />
     </div>
   );
 }
