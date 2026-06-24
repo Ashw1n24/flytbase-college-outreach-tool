@@ -49,7 +49,9 @@ export function mapCandidate(
     email_confidence: row.email_confidence,
     github_url: row.github_url,
     in_pipeline: inPipeline,
+    created_at: row.created_at ?? undefined,
     competitions: (row.competition_results ?? []).map(mapCompetition),
     positions: (row.positions_of_responsibility ?? []).map(mapPosition),
+    culture_score: row.culture_score ?? null,
   };
 }

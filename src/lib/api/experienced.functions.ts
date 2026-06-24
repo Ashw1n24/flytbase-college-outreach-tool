@@ -239,8 +239,9 @@ async function fetchAllCandidates() {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("experienced_candidates")
-    .select("id, campaign_id, full_name, current_title, current_company, linkedin_url, fit_tier, fit_score, created_at, campaigns(name)")
-    .order("created_at", { ascending: false });
+    .select("id, campaign_id, full_name, current_title, current_company, linkedin_url, email, fit_tier, fit_score, is_archived, created_at, campaigns(name)")
+    .eq("is_archived", false)
+    .order("fit_score", { ascending: false });
   if (error) throw new Error(`Failed to fetch candidates: ${error.message}`);
   return (data ?? []).map((row) => ({
     ...row,
@@ -912,8 +913,8 @@ async function runApifySearch(campaignId: string, maxResults = 100): Promise<{ c
     type CompanyEntry = { apollo_org_id: string; company_name: string; count: number };
     const companyMap = new Map<string, CompanyEntry>();
 
-    // Deduplication: fetch LinkedIn URLs from OTHER campaigns only.
-    // This campaign's own rows will be cleared below, so we don't dedupe against them.
+    // Cross-campaign deduplication: skip LinkedIn URLs already in OTHER campaigns.
+    // Candidates already in THIS campaign are handled by the merge logic below (update, not re-insert).
     const { data: existingRows } = await supabase
       .from("experienced_candidates")
       .select("linkedin_url")
@@ -1017,23 +1018,65 @@ async function runApifySearch(campaignId: string, maxResults = 100): Promise<{ c
       company_name:  c.company_name,
     }));
 
-    // Clear existing rows for this campaign before fresh insert (clean re-run)
-    const { error: delCandErr } = await supabase
+    // ── Merge strategy: update existing candidates, insert new ones ──────────
+    // Replaces the old delete-then-insert approach which wiped is_archived flags,
+    // outreach history, and pipeline assignments on every re-run.
+    const { data: existingForCampaign } = await supabase
       .from("experienced_candidates")
-      .delete()
+      .select("id, linkedin_url, apollo_id")
       .eq("campaign_id", campaignId);
-    if (delCandErr) console.warn("[delete] candidates:", delCandErr.message);
 
-    const { error: delCompErr } = await supabase
-      .from("campaign_companies")
-      .delete()
-      .eq("campaign_id", campaignId);
-    if (delCompErr) console.warn("[delete] companies:", delCompErr.message);
+    const existingByLinkedIn = new Map<string, string>(
+      (existingForCampaign ?? [])
+        .filter((c) => c.linkedin_url)
+        .map((c) => [c.linkedin_url as string, c.id as string]),
+    );
+    const existingByApolloId = new Map<string, string>(
+      (existingForCampaign ?? [])
+        .filter((c) => c.apollo_id)
+        .map((c) => [c.apollo_id as string, c.id as string]),
+    );
 
-    if (candidateRows.length > 0) {
+    type CandidateUpdate = {
+      id: string;
+      fit_tier: string;
+      fit_score: number;
+      current_title: string | null;
+      current_company: string | null;
+      apollo_raw: object;
+    };
+
+    const rowsToInsert: typeof candidateRows = [];
+    const rowsToUpdate: CandidateUpdate[] = [];
+
+    for (const row of candidateRows) {
+      const existingId =
+        (row.linkedin_url && existingByLinkedIn.get(row.linkedin_url)) ||
+        (row.apollo_id   && existingByApolloId.get(row.apollo_id))    ||
+        null;
+
+      if (existingId) {
+        // Refresh scores + title only — never touch is_archived, email, outreach links
+        rowsToUpdate.push({
+          id:              existingId,
+          fit_tier:        row.fit_tier,
+          fit_score:       row.fit_score,
+          current_title:   row.current_title,
+          current_company: row.current_company,
+          apollo_raw:      row.apollo_raw,
+        });
+      } else {
+        rowsToInsert.push(row);
+      }
+    }
+
+    console.log(`[save] ${rowsToInsert.length} new, ${rowsToUpdate.length} re-scored (history preserved)`);
+
+    // Insert new candidates
+    if (rowsToInsert.length > 0) {
       const CHUNK = 50;
-      for (let start = 0; start < candidateRows.length; start += CHUNK) {
-        const chunk = candidateRows.slice(start, start + CHUNK);
+      for (let start = 0; start < rowsToInsert.length; start += CHUNK) {
+        const chunk = rowsToInsert.slice(start, start + CHUNK);
         const { error: candErr } = await supabase
           .from("experienced_candidates")
           .insert(chunk);
@@ -1044,6 +1087,23 @@ async function runApifySearch(campaignId: string, maxResults = 100): Promise<{ c
       }
     }
 
+    // Re-score existing candidates (sequential updates — safe, no history lost)
+    for (const upd of rowsToUpdate) {
+      const { id, ...fields } = upd;
+      const { error: updErr } = await supabase
+        .from("experienced_candidates")
+        .update(fields)
+        .eq("id", id);
+      if (updErr) console.warn(`[update] candidate ${id} failed:`, updErr.message);
+    }
+
+    // Companies: rebuild from scratch — no manual curation lives here
+    const { error: delCompErr } = await supabase
+      .from("campaign_companies")
+      .delete()
+      .eq("campaign_id", campaignId);
+    if (delCompErr) console.warn("[delete] companies:", delCompErr.message);
+
     if (companyRows.length > 0) {
       const CHUNK = 50;
       for (let start = 0; start < companyRows.length; start += CHUNK) {
@@ -1053,19 +1113,21 @@ async function runApifySearch(campaignId: string, maxResults = 100): Promise<{ c
           .insert(chunk);
         if (compErr) {
           console.error(`[insert] companies offset=${start} failed:`, compErr.message);
-          // Non-fatal — candidates already inserted; log and continue
+          // Non-fatal — candidates already saved; log and continue
         }
       }
     }
 
     const distinctCompanyCount = companyMap.size;
+    // Total = candidates that existed before + newly inserted this run
+    const totalCandidateCount = (existingForCampaign?.length ?? 0) + rowsToInsert.length;
 
     await supabase
       .from("campaigns")
-      .update({ status: "done", candidate_count: candidateRows.length, company_count: distinctCompanyCount })
+      .update({ status: "done", candidate_count: totalCandidateCount, company_count: distinctCompanyCount })
       .eq("id", campaignId);
 
-    return { candidateCount: candidateRows.length, companyCount: distinctCompanyCount };
+    return { candidateCount: totalCandidateCount, companyCount: distinctCompanyCount };
   } catch (err) {
     console.error("[Apify error]", err);
     await supabase.from("campaigns").update({ status: "error" }).eq("id", campaignId);
@@ -1244,5 +1306,21 @@ export const updateTargetCompanyFn = createServerFn({ method: "POST" })
       .update(data.updates)
       .eq("id", data.id);
     if (error) throw new Error(`Failed to update company: ${error.message}`);
+    return { ok: true };
+  });
+
+// ---------------------------------------------------------------------------
+// Archive / restore experienced candidates (soft delete)
+// ---------------------------------------------------------------------------
+
+export const archiveExpCandidateFn = createServerFn({ method: "POST" })
+  .validator(z.object({ ids: z.array(z.string().min(1)).min(1), archive: z.boolean() }))
+  .handler(async ({ data }) => {
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase
+      .from("experienced_candidates")
+      .update({ is_archived: data.archive })
+      .in("id", data.ids);
+    if (error) throw new Error(`Failed to archive candidates: ${error.message}`);
     return { ok: true };
   });

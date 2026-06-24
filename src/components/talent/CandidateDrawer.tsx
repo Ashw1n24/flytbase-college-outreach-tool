@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useTalent } from "@/context/TalentContext";
 import { getCandidateByIdFn } from "@/lib/api/candidates.functions";
+import { resolveStudentEmailFn } from "@/lib/api/student-records.functions";
 import {
   CATEGORY_CLASS,
   TIER_META,
@@ -25,6 +26,7 @@ import {
 import { AddToPipelineMenu } from "./AddToPipelineMenu";
 import { computeRoleFit } from "@/lib/utils/rolefit";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 
 function safeUrl(url: string | null): string | null {
   if (!url) return null;
@@ -255,10 +257,7 @@ export function CandidateDrawer() {
                       )}
                     </a>
                   ) : (
-                    <p className="flex items-center gap-2 text-muted-foreground/60">
-                      <Mail className="h-4 w-4 shrink-0" />
-                      No email — enrich on add
-                    </p>
+                    <RollListEmailLookup name={c.full_name} college={c.university} />
                   )}
                 </div>
               </section>
@@ -283,5 +282,78 @@ export function CandidateDrawer() {
         )}
       </aside>
     </>
+  );
+}
+
+function RollListEmailLookup({
+  name,
+  college,
+}: {
+  name: string;
+  college: string;
+}) {
+  const [queryName] = useState(name);
+  const [queryCollege] = useState(college);
+
+  const { data, isFetching, refetch } = useQuery({
+    queryKey: ["roll-list-email", queryName, queryCollege],
+    queryFn: () =>
+      resolveStudentEmailFn({
+        data: {
+          name: queryName,
+          college: queryCollege || undefined,
+          limit: 5,
+        },
+      }),
+    enabled: false,
+  });
+
+  const matches = data ?? [];
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="flex items-center gap-2 text-muted-foreground/70">
+        <Mail className="h-4 w-4 shrink-0" />
+        No email on record
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 gap-1.5 text-[11px]"
+        onClick={() => refetch()}
+        disabled={isFetching}
+      >
+        {isFetching && <Loader2 className="h-3 w-3 animate-spin" />}
+        Find roll-list email
+      </Button>
+      {matches.length > 0 && (
+        <ul className="space-y-1.5">
+          {matches.map((m, idx) => (
+            <li
+              key={`${m.college}-${m.roll_number || m.name}-${idx}`}
+              className="rounded-md border border-border p-2"
+            >
+              <p className="text-xs font-medium">{m.name}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {m.college}
+                {m.branch ? ` · ${m.branch}` : ""}
+                {m.roll_number ? ` · ${m.roll_number}` : ""}
+              </p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {m.emails.map((email) => (
+                  <a
+                    key={email}
+                    href={`mailto:${email}`}
+                    className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-primary hover:bg-accent"
+                  >
+                    {email}
+                  </a>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

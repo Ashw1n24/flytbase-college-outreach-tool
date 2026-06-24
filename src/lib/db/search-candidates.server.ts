@@ -7,6 +7,7 @@ import {
 } from "@/lib/db/map-candidate";
 import { expandResultTiers } from "@/lib/db/result-tier";
 import { computeRoleFit, type RoleFitLabel } from "@/lib/utils/rolefit";
+import { computeStudentCultureFit, type CultureTier } from "@/lib/utils/culturefit";
 import type { Database } from "@/types/database";
 import type { SearchParams, SearchResult } from "@/types/search";
 
@@ -188,12 +189,10 @@ async function sortIdsByCompetitionCount(
   ids: string[],
   sortDir: "asc" | "desc",
 ): Promise<string[]> {
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("competition_results")
     .select("candidate_id")
     .in("candidate_id", ids);
-
-  if (error) throw error;
 
   const counts = new Map<string, number>();
   for (const id of ids) counts.set(id, 0);
@@ -226,6 +225,12 @@ function filterByRoleFit(candidates: Candidate[], labels: RoleFitLabel[]): Candi
   if (!labels.length) return candidates;
   const wanted = new Set(labels);
   return candidates.filter((c) => computeRoleFit(c).some((r) => wanted.has(r)));
+}
+
+function filterByCultureFit(candidates: Candidate[], tiers: CultureTier[]): Candidate[] {
+  if (!tiers.length) return candidates;
+  const wanted = new Set(tiers);
+  return candidates.filter((c) => wanted.has(computeStudentCultureFit(c).tier));
 }
 
 export async function searchCandidates(
@@ -291,6 +296,7 @@ export async function searchCandidates(
       .map((row) => mapCandidate(row, pipelineIds.has(row.id)));
 
     candidates = filterByRoleFit(candidates, params.role_fit_labels ?? []);
+    candidates = filterByCultureFit(candidates, params.culture_fit_tiers ?? []);
 
     return {
       candidates,
@@ -317,7 +323,16 @@ export async function searchCandidates(
       ascending: sortDir === "asc",
       nullsFirst: sortDir === "desc",
     });
+  } else if (sortBy === "email") {
+    // Candidates with an email address first, then nulls; secondary by created_at
+    query = query
+      .order("email", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: false });
+  } else if (sortBy === "culture_score") {
+    // DB column — sort natively so cross-page ordering is correct.
+    query = query.order("culture_score", { ascending: sortDir === "asc", nullsFirst: false });
   } else if (sortBy === "competition_count") {
+    // Computed in-memory; pre-sort by grad year for a stable within-page order.
     query = query.order("graduation_year", { ascending: false, nullsFirst: true });
   }
 
@@ -336,6 +351,7 @@ export async function searchCandidates(
       return sortDir === "asc" ? diff : -diff;
     });
   }
+  // culture_score is now sorted by DB ORDER BY above — no in-memory sort needed.
 
   candidates = filterByRoleFit(candidates, params.role_fit_labels ?? []);
 
@@ -370,6 +386,34 @@ export async function getCandidatesByIds(
     .map((id) => byId.get(id))
     .filter((row): row is CandidateWithRelations => Boolean(row))
     .map((row) => mapCandidate(row, pipelineIds.has(row.id)));
+}
+
+export async function getCandidatesAfter(
+  supabase: SupabaseClient<Database>,
+  after: string,
+  before?: string,
+): Promise<Candidate[]> {
+  let candidateQuery = supabase
+    .from("candidates")
+    .select(CANDIDATE_SELECT)
+    .gte("created_at", after)
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  if (before) {
+    candidateQuery = candidateQuery.lte("created_at", before);
+  }
+
+  const [pipelineIds, result] = await Promise.all([
+    fetchPipelineMemberIds(supabase),
+    candidateQuery,
+  ]);
+
+  if (result.error) throw result.error;
+
+  return ((result.data as CandidateWithRelations[] | null) ?? []).map((row) =>
+    mapCandidate(row, pipelineIds.has(row.id)),
+  );
 }
 
 export async function getCandidateById(

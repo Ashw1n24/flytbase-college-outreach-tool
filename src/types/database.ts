@@ -26,6 +26,7 @@ export interface Database {
             | null;
           github_url: string | null;
           source: "competition_scrape" | "google_search" | "twitter" | "linkedin" | "manual";
+          culture_score: number | null;
           created_at: string;
           last_updated: string;
         };
@@ -245,9 +246,65 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["campaign_companies"]["Insert"]>;
       };
     };
+      outreach_templates: {
+        Row: {
+          id: string;
+          name: string;
+          pipeline: "student" | "experienced" | "both";
+          message_type: "initial" | "followup_1" | "followup_2";
+          channel: "email" | "linkedin";
+          subject_template: string | null;
+          body_template: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["outreach_templates"]["Row"], "id" | "created_at" | "updated_at"> & {
+          id?: string; created_at?: string; updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["outreach_templates"]["Insert"]>;
+      };
+      outreach_messages: {
+        Row: {
+          id: string;
+          candidate_id: string;
+          candidate_type: "student" | "experienced";
+          pipeline_id: string | null;
+          campaign_id: string | null;
+          channel: "email" | "linkedin";
+          status: "draft" | "approved" | "sending" | "sent" | "failed" | "replied";
+          subject: string | null;
+          body: string;
+          to_email: string | null;
+          to_linkedin_url: string | null;
+          candidate_name: string | null;
+          candidate_title: string | null;
+          candidate_company: string | null;
+          template_id: string | null;
+          is_followup: boolean;
+          parent_message_id: string | null;
+          follow_up_number: number;
+          gmail_message_id: string | null;
+          gmail_thread_id: string | null;
+          sent_at: string | null;
+          replied_at: string | null;
+          next_follow_up_at: string | null;
+          error_message: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Omit<Database["public"]["Tables"]["outreach_messages"]["Row"], "id" | "created_at" | "updated_at"> & {
+          id?: string; created_at?: string; updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["outreach_messages"]["Insert"]>;
+      };
+    };
     Functions: {
       increment_rate_limit: {
         Args: { p_service: string; p_date: string; p_ceiling: number };
+        Returns: undefined;
+      };
+      set_updated_at: {
+        Args: Record<string, never>;
         Returns: undefined;
       };
     };

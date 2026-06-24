@@ -1,5 +1,4 @@
 import { createFileRoute } from '@tanstack/react-router'
-import Firecrawl from '@mendable/firecrawl-js'
 
 export const Route = createFileRoute('/api/firecrawl/+server')({
   server: {
@@ -16,28 +15,25 @@ export const Route = createFileRoute('/api/firecrawl/+server')({
         }
 
         try {
-          const key = process.env.FIRECRAWL_API_KEY
-          if (!key) {
-            return new Response(
-              JSON.stringify({ success: false, error: 'Server is missing FIRECRAWL_API_KEY' }),
-              { status: 500, headers: { 'content-type': 'application/json' } },
-            )
-          }
-
           const controller = new AbortController()
-          const timeout = setTimeout(() => controller.abort(), 45_000)
+          const timeout = setTimeout(() => controller.abort(), 30_000)
 
-          const client = new Firecrawl({ apiKey: key })
-          const result = await client.scrape(url, {
-            formats: ['markdown'],
-            onlyMainContent: true,
-          }).catch((err: unknown) => {
-            throw err
+          // Jina AI reader — no API key needed, returns clean markdown
+          const res = await fetch(`https://r.jina.ai/${url}`, {
+            headers: { Accept: 'text/markdown' },
+            signal: controller.signal,
           })
 
           clearTimeout(timeout)
 
-          const markdown = (result?.markdown as string | undefined) ?? ''
+          if (!res.ok) {
+            return new Response(
+              JSON.stringify({ success: false, error: `Jina reader returned ${res.status}` }),
+              { status: 502, headers: { 'content-type': 'application/json' } },
+            )
+          }
+
+          const markdown = (await res.text()).trim()
 
           if (!markdown) {
             return new Response(

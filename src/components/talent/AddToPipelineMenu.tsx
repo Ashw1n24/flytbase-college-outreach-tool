@@ -16,23 +16,36 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   candidateId: string;
+  candidateType?: "student" | "experienced";
   className?: string;
   size?: "sm" | "default";
-  /** First value from computeRoleFit() for this candidate, used to pre-populate the new pipeline name. */
   suggestedRoleFit?: RoleFitLabel;
 }
 
 export function AddToPipelineMenu({
   candidateId,
+  candidateType = "student",
   className,
   size = "sm",
   suggestedRoleFit,
 }: Props) {
-  const { pipelines, membership, addToPipeline, createPipeline } = useTalent();
+  const {
+    pipelines,
+    membership,
+    expMembership,
+    addToPipeline,
+    addToExpPipeline,
+    createPipeline,
+  } = useTalent();
+
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
-  const currentPipelineId = membership[candidateId];
+
+  const currentPipelineId =
+    candidateType === "experienced"
+      ? expMembership[candidateId]
+      : membership[candidateId];
 
   const suggestedName = suggestedRoleFit ? `${suggestedRoleFit} Pipeline` : "";
 
@@ -41,14 +54,22 @@ export function AddToPipelineMenu({
     setCreating(true);
   };
 
+  const handleAdd = (pipelineId: string) => {
+    if (candidateType === "experienced") {
+      addToExpPipeline(candidateId, pipelineId);
+    } else {
+      addToPipeline(candidateId, pipelineId);
+    }
+    setOpen(false);
+  };
+
   const handleCreate = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
     const p = createPipeline(trimmed);
-    addToPipeline(candidateId, p.id);
+    handleAdd(p.id);
     setName("");
     setCreating(false);
-    setOpen(false);
   };
 
   return (
@@ -86,7 +107,7 @@ export function AddToPipelineMenu({
           <DropdownMenuItem
             key={p.id}
             className="justify-between"
-            onSelect={() => addToPipeline(candidateId, p.id)}
+            onSelect={() => handleAdd(p.id)}
           >
             <span className="truncate">{p.name}</span>
             {currentPipelineId === p.id && (

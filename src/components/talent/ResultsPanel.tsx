@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, SlidersHorizontal, Zap, Search } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Loader2, SlidersHorizontal, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -44,23 +45,23 @@ function candidatesToCsv(candidates: Candidate[]): string {
 
 const SORT_OPTIONS = [
   {
-    label: "Grad Year (newest)",
-    sort_by: "graduation_year" as const,
-    sort_dir: "desc" as const,
-  },
-  {
     label: "Grad Year (oldest)",
     sort_by: "graduation_year" as const,
     sort_dir: "asc" as const,
   },
   {
-    label: "Most Wins",
-    sort_by: "competition_count" as const,
+    label: "Grad Year (newest)",
+    sort_by: "graduation_year" as const,
     sort_dir: "desc" as const,
   },
   {
-    label: "Name (A–Z)",
-    sort_by: "name" as const,
+    label: "Score (highest)",
+    sort_by: "culture_score" as const,
+    sort_dir: "desc" as const,
+  },
+  {
+    label: "Email (available)",
+    sort_by: "email" as const,
     sort_dir: "asc" as const,
   },
 ];
@@ -72,7 +73,7 @@ function sortLabel(
   const match = SORT_OPTIONS.find(
     (o) => o.sort_by === sortBy && o.sort_dir === sortDir,
   );
-  return match?.label ?? "Grad Year (newest)";
+  return match?.label ?? "Grad Year (oldest)";
 }
 
 export function ResultsPanel() {
@@ -90,12 +91,12 @@ export function ResultsPanel() {
     selectedIds,
     toggleSelect,
     clearSelection,
+    refetch,
   } = useSearchContext();
   const { addToPipeline } = useTalent();
+  const navigate = useNavigate();
 
   const [exporting, setExporting] = useState(false);
-  const [twitterScraping, setTwitterScraping] = useState(false);
-  const [linkedinScraping, setLinkedinScraping] = useState(false);
 
   const handleExportCsv = useCallback(async () => {
     setExporting(true);
@@ -118,43 +119,6 @@ export function ResultsPanel() {
     }
   }, [filters]);
 
-  const handleTwitterScrape = useCallback(async () => {
-    if (!confirm("Start the Twitter competition scraper? It runs in the background and may take several minutes.")) return;
-    setTwitterScraping(true);
-    try {
-      const res = await fetch("/api/scrape/twitter", { method: "POST" });
-      const data = await res.json();
-      if (data.success) {
-        alert("Twitter scraper started in the background. New candidates will appear once it completes.");
-      } else {
-        alert(`Scraper error: ${data.error}`);
-      }
-    } catch (err) {
-      console.error("Twitter scraper trigger failed:", err);
-      alert("Failed to start scraper.");
-    } finally {
-      setTwitterScraping(false);
-    }
-  }, []);
-
-  const handleLinkedinScrape = useCallback(async () => {
-    if (!confirm("Start the LinkedIn Google Search scraper? This will use your Apify quota (~$0.25/run) and run in the background.")) return;
-    setLinkedinScraping(true);
-    try {
-      const res = await fetch("/api/scrape/linkedin", { method: "POST" });
-      const data = await res.json();
-      if (data.success) {
-        alert("LinkedIn scraper started in the background. New candidates will appear once it completes.");
-      } else {
-        alert(`Scraper error: ${data.error}`);
-      }
-    } catch (err) {
-      console.error("LinkedIn scraper trigger failed:", err);
-      alert("Failed to start scraper.");
-    } finally {
-      setLinkedinScraping(false);
-    }
-  }, []);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / limit));
   const currentSort = sortLabel(filters.sort_by, filters.sort_dir);
@@ -206,31 +170,11 @@ export function ResultsPanel() {
             variant="outline"
             size="sm"
             className="h-8 gap-1.5"
-            onClick={handleTwitterScrape}
-            disabled={twitterScraping}
-            title="Run Twitter competition scraper"
+            onClick={() => navigate({ to: "/scrape" })}
+            title="Open scrape tools"
           >
-            {twitterScraping ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Zap className="h-4 w-4" />
-            )}
-            Scrape Twitter
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5"
-            onClick={handleLinkedinScrape}
-            disabled={linkedinScraping}
-            title="Run LinkedIn Google Search scraper"
-          >
-            {linkedinScraping ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Search className="h-4 w-4" />
-            )}
-            Scrape LinkedIn
+            <Search className="h-4 w-4" />
+            Scrape
           </Button>
           <Button
             size="sm"

@@ -64,7 +64,9 @@ export interface Candidate {
   email: string | null;
   email_confidence: EmailConfidence | null;
   github_url: string | null;
+  culture_score: number | null;
   in_pipeline?: boolean;
+  created_at?: string;
   competitions: CompetitionResult[];
   positions: PositionOfResponsibility[];
 }
@@ -275,9 +277,7 @@ export const MOCK_PIPELINES: Pipeline[] = [
 ];
 
 /** Initial membership: candidateId -> pipelineId (matches scripts/seed.ts UUIDs). */
-export const INITIAL_MEMBERSHIP: Record<string, string> = {
-  "11111111-1111-4111-8111-111111111111": "p1",
-};
+export const INITIAL_MEMBERSHIP: Record<string, string> = {};
 
 /* ── Scraper Health Dashboard mock data ── */
 
@@ -420,6 +420,7 @@ export const MOCK_CANDIDATES: Candidate[] = [
         year_end: 2024,
       },
     ],
+    culture_score: 73,
   },
   {
     id: "c2",
@@ -464,6 +465,7 @@ export const MOCK_CANDIDATES: Candidate[] = [
         year_end: null,
       },
     ],
+    culture_score: 85,
   },
   {
     id: "c3",
@@ -506,6 +508,7 @@ export const MOCK_CANDIDATES: Candidate[] = [
         year_end: 2024,
       },
     ],
+    culture_score: 85,
   },
   {
     id: "c4",
@@ -549,6 +552,7 @@ export const MOCK_CANDIDATES: Candidate[] = [
         year_end: 2024,
       },
     ],
+    culture_score: 70,
   },
   {
     id: "c5",
@@ -578,6 +582,7 @@ export const MOCK_CANDIDATES: Candidate[] = [
       },
     ],
     positions: [],
+    culture_score: 48,
   },
   {
     id: "c6",
@@ -622,5 +627,6 @@ export const MOCK_CANDIDATES: Candidate[] = [
         year_end: 2023,
       },
     ],
+    culture_score: 85,
   },
 ];

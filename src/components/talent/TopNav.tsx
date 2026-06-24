@@ -1,7 +1,6 @@
 import {
   ChevronDown,
   Zap,
-  Settings,
   FolderKanban,
   Users,
   Trophy,
@@ -19,6 +18,7 @@ import {
 import { useTalent } from "@/context/TalentContext";
 import { useQuery } from "@tanstack/react-query";
 import { getPendingFlaggedFn } from "@/lib/api/competitions.functions";
+import { getSystemHealthFn } from "@/lib/api/health.functions";
 import { cn } from "@/lib/utils";
 
 type HealthState = "ok" | "warn" | "fail";
@@ -33,14 +33,22 @@ const HEALTH_META: Record<
 };
 
 export function TopNav({
-  health = "fail",
   hideCompetitions = false,
 }: {
-  health?: HealthState;
+  health?: HealthState; // kept for backward compat, ignored — derived from live check
   hideCompetitions?: boolean;
 }) {
-  const h = HEALTH_META[health];
   const { pipelines, pipelineMemberCount } = useTalent();
+
+  const { data: healthData } = useQuery({
+    queryKey: ["system-health"],
+    queryFn: () => getSystemHealthFn(),
+    staleTime: 2 * 60 * 1000,   // re-check every 2 min
+    refetchInterval: 2 * 60 * 1000,
+  });
+
+  const health: HealthState = (healthData?.overallStatus as HealthState) ?? "warn";
+  const h = HEALTH_META[health];
   const { data: pendingFlagged = [] } = useQuery({
     queryKey: ["flagged_competitions", "pending"],
     queryFn: () => getPendingFlaggedFn(),
@@ -117,10 +125,6 @@ export function TopNav({
           </Link>
         </Button>
 
-        <Button variant="outline" size="sm" className="h-8 gap-1.5">
-          <Settings className="h-4 w-4" />
-          Admin
-        </Button>
       </div>
     </header>
   );

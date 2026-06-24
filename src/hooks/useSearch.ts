@@ -11,7 +11,7 @@ export const DEFAULT_SEARCH_PARAMS: SearchParams = {
   page: 0,
   limit: 50,
   sort_by: "graduation_year",
-  sort_dir: "desc",
+  sort_dir: "asc",
 };
 
 function computeActiveFilterCount(filters: SearchParams): number {
@@ -22,6 +22,7 @@ function computeActiveFilterCount(filters: SearchParams): number {
   if (filters.branches?.length) count += filters.branches.length;
   if (filters.sources?.length) count += filters.sources.length;
   if (filters.role_fit_labels?.length) count += filters.role_fit_labels.length;
+  if (filters.culture_fit_tiers?.length) count += filters.culture_fit_tiers.length;
   if (filters.has_competition) count += 1;
   if (filters.competition_categories?.length) {
     count += filters.competition_categories.length;

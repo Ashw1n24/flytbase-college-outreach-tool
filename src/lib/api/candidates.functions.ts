@@ -4,8 +4,11 @@ import { z } from "zod";
 import {
   getCandidateById,
   getCandidatesByIds,
+  getCandidatesAfter,
   searchCandidates,
 } from "@/lib/db/search-candidates.server";
+import { mapCandidate, type CandidateWithRelations } from "@/lib/db/map-candidate";
+import { computeStudentCultureFit } from "@/lib/utils/culturefit";
 import { getSupabaseAdmin } from "@/lib/supabase.server";
 
 const competitionCategorySchema = z.enum([
@@ -55,6 +58,7 @@ const searchParamsSchema = z.object({
     "BDR / Sales",
     "Marketing",
   ])).optional(),
+  culture_fit_tiers: z.array(z.enum(["strong", "good", "partial"])).optional(),
   has_competition: z.boolean().optional(),
   competition_categories: z.array(competitionCategorySchema).optional(),
   competition_names: z.array(z.string()).optional(),
@@ -69,7 +73,7 @@ const searchParamsSchema = z.object({
   por_year_max: z.number().int().optional(),
   page: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).max(100).optional(),
-  sort_by: z.enum(["name", "graduation_year", "competition_count"]).optional(),
+  sort_by: z.enum(["name", "graduation_year", "competition_count", "culture_score", "email"]).optional(),
   sort_dir: z.enum(["asc", "desc"]).optional(),
 });
 
@@ -94,9 +98,59 @@ export const getCandidatesByIdsFn = createServerFn({ method: "POST" })
     return getCandidatesByIds(supabase, data.ids);
   });
 
+export const getCandidatesAfterFn = createServerFn({ method: "POST" })
+  .validator(z.object({ after: z.string(), before: z.string().optional() }))
+  .handler(async ({ data }) => {
+    const supabase = getSupabaseAdmin();
+    return getCandidatesAfter(supabase, data.after, data.before);
+  });
+
 export const exportStudentCandidatesFn = createServerFn({ method: "POST" })
   .validator(searchParamsSchema.omit({ page: true, limit: true }))
   .handler(async ({ data }) => {
     const supabase = getSupabaseAdmin();
     return searchCandidates(supabase, { ...data, page: 0, limit: 10_000 });
+  });
+
+// ── Backfill: recompute culture_score for all existing candidates ────────────
+export const recomputeStudentScoresFn = createServerFn({ method: "POST" })
+  .handler(async () => {
+    const supabase = getSupabaseAdmin();
+
+    // Fetch all candidates with their relations in pages to avoid memory issues
+    const PAGE_SIZE = 200;
+    let offset = 0;
+    let updated = 0;
+    let errors = 0;
+
+    while (true) {
+      const { data, error } = await supabase
+        .from("candidates")
+        .select("*, competition_results(*), positions_of_responsibility(*)")
+        .range(offset, offset + PAGE_SIZE - 1)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+
+      for (const row of data as CandidateWithRelations[]) {
+        const candidate = mapCandidate(row, false);
+        const { score } = computeStudentCultureFit(candidate);
+        const { error: updateError } = await supabase
+          .from("candidates")
+          .update({ culture_score: score })
+          .eq("id", row.id);
+        if (updateError) {
+          errors++;
+          console.warn("[backfill] update failed for", row.id, updateError.message);
+        } else {
+          updated++;
+        }
+      }
+
+      if (data.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
+    }
+
+    return { updated, errors };
   });

@@ -22,6 +22,7 @@ const AI_KW = /\b(ai|ml|machine.?learning|deep.?learning|nlp|llm|neural|genai|ge
 
 const TOP_TIERS = new Set(["winner", "runner_up", "top_3"]);
 const TECH_CATS = new Set(["hardware", "software"]);
+const LEADERSHIP_CATS = new Set(["founders_office", "product_gtm"]);
 
 export function computeStudentCultureFit(candidate: Candidate): CultureFitResult {
   // ── High Agency (0–35): leading clubs & initiatives at college ──
@@ -38,18 +39,22 @@ export function computeStudentCultureFit(candidate: Candidate): CultureFitResult
   let technical = 0;
   const hasTopResult = candidate.competitions.some((c) => TOP_TIERS.has(c.result_tier));
   const hasTechComp = candidate.competitions.some((c) => TECH_CATS.has(c.competition_category));
+  const hasLeadershipComp = candidate.competitions.some((c) => LEADERSHIP_CATS.has(c.competition_category));
   if (hasTopResult) technical += 20;
   else if (candidate.competitions.length > 0) technical += 10;
   if (hasTechComp) technical += 10;
+  // Founders/GTM competitions count as domain signal (not pure tech depth)
+  else if (hasLeadershipComp) technical += 5;
   technical = Math.min(technical, 30);
 
   // ── Initiative Taking (0–25): breadth of engagement ──
   let initiative = 0;
   const hasBoth = candidate.competitions.length > 0 && candidate.positions.length > 0;
   const compCatCount = new Set(candidate.competitions.map((c) => c.competition_category)).size;
-  if (hasBoth) initiative += 15;
+  if (hasBoth) initiative += 20;
+  else if (hasLeadership && candidate.positions.length > 0) initiative += 15; // leadership POR alone = real initiative
   else if (candidate.competitions.length > 0 || candidate.positions.length > 0) initiative += 8;
-  if (compCatCount >= 2) initiative += 10;
+  if (compCatCount >= 2) initiative += 5;
   initiative = Math.min(initiative, 25);
 
   // ── AI-Native (0–10): AI/ML keywords anywhere ──
@@ -62,7 +67,9 @@ export function computeStudentCultureFit(candidate: Candidate): CultureFitResult
   if (AI_KW.test(allText)) aiNative = 10;
 
   const score = agency + technical + initiative + aiNative;
-  const tier: CultureTier = score >= 75 ? "strong" : score >= 50 ? "good" : "partial";
+  // Good ≥ 40: E-Cell president (agency=25 + initiative=15) = 40 → Good
+  // Strong ≥ 65: competition winner + leadership (20+10+20+...) = 65+
+  const tier: CultureTier = score >= 65 ? "strong" : score >= 40 ? "good" : "partial";
 
   return { score, tier, breakdown: { agency, technical, initiative, aiNative } };
 }

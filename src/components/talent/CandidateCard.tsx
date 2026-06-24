@@ -1,4 +1,4 @@
-import { Linkedin, Mail, Github, Award, UserCheck, Sparkles } from "lucide-react";
+import { Linkedin, Mail, Github, Award, UserCheck, Sparkles, CalendarDays } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   type Candidate,
@@ -10,7 +10,12 @@ import { useTalent } from "@/context/TalentContext";
 import { AddToPipelineMenu } from "./AddToPipelineMenu";
 import { cn } from "@/lib/utils";
 import { computeRoleFit, ROLE_FIT_STYLE } from "@/lib/utils/rolefit";
-import { computeStudentCultureFit, CULTURE_TIER_META } from "@/lib/utils/culturefit";
+import { computeStudentCultureFit, CULTURE_TIER_META, type CultureTier } from "@/lib/utils/culturefit";
+
+function tierFromScore(score: number | null): CultureTier {
+  if (score == null) return "partial";
+  return score >= 65 ? "strong" : score >= 40 ? "good" : "partial";
+}
 
 function safeUrl(url: string | null): string | null {
   if (!url) return null;
@@ -28,8 +33,10 @@ export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
   const c = candidate;
   const { openDrawer, isInPipeline } = useTalent();
   const roleFit = computeRoleFit(c);
+  const score = c.culture_score ?? null;
+  const cultureTier = tierFromScore(score);
+  const cultureMeta = CULTURE_TIER_META[cultureTier];
   const cultureFit = computeStudentCultureFit(c);
-  const cultureMeta = CULTURE_TIER_META[cultureFit.tier];
   const inPipeline = c.in_pipeline ?? isInPipeline(c.id);
   return (
     <div
@@ -68,7 +75,22 @@ export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
             {c.university} · {c.degree} {c.branch} · Class of {c.graduation_year}
           </p>
         </div>
-        <AddToPipelineMenu candidateId={c.id} suggestedRoleFit={roleFit[0]} />
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <AddToPipelineMenu candidateId={c.id} suggestedRoleFit={roleFit[0]} />
+          {c.created_at && (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/50"
+              title={new Date(c.created_at).toLocaleString()}
+            >
+              <CalendarDays className="h-3 w-3" />
+              {new Date(c.created_at).toLocaleDateString("en-IN", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Competitions */}
@@ -135,7 +157,7 @@ export function CandidateCard({ candidate, selected, onToggleSelect }: Props) {
             )}
             title={`Culture: Agency ${cultureFit.breakdown.agency}/35 · Technical ${cultureFit.breakdown.technical}/30 · Initiative ${cultureFit.breakdown.initiative}/25 · AI ${cultureFit.breakdown.aiNative}/10`}
           >
-            {cultureMeta.label} · {cultureFit.score}
+            {cultureMeta.label} · {score ?? "—"}
           </span>
         </div>
       </div>

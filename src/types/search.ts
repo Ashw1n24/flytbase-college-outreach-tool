@@ -4,8 +4,9 @@ import type {
   ResultTier,
 } from "@/data/talent";
 import type { RoleFitLabel } from "@/lib/utils/rolefit";
+import type { CultureTier } from "@/lib/utils/culturefit";
 
-export type SortField = "name" | "graduation_year" | "competition_count";
+export type SortField = "name" | "graduation_year" | "competition_count" | "culture_score" | "email";
 export type SortDirection = "asc" | "desc";
 
 export interface SearchParams {
@@ -29,6 +30,7 @@ export interface SearchParams {
   por_year_max?: number;
   sources?: string[];
   role_fit_labels?: RoleFitLabel[];
+  culture_fit_tiers?: CultureTier[];
   page?: number;
   limit?: number;
   sort_by?: SortField;

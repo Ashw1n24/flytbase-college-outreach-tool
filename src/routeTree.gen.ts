@@ -9,7 +9,10 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ScrapeResultsRouteImport } from './routes/scrape-results'
+import { Route as ScrapeRouteImport } from './routes/scrape'
 import { Route as PipelinesRouteImport } from './routes/pipelines'
+import { Route as OutreachRouteImport } from './routes/outreach'
 import { Route as ExperiencedRouteImport } from './routes/experienced'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as CompetitionsRouteImport } from './routes/competitions'
@@ -22,9 +25,24 @@ import { Route as ApiFirecrawlChar43serverRouteImport } from './routes/api/firec
 import { Route as ApiScrapeTwitterChar43serverRouteImport } from './routes/api/scrape/twitter/+server'
 import { Route as ApiScrapeLinkedinChar43serverRouteImport } from './routes/api/scrape/linkedin/+server'
 
+const ScrapeResultsRoute = ScrapeResultsRouteImport.update({
+  id: '/scrape-results',
+  path: '/scrape-results',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScrapeRoute = ScrapeRouteImport.update({
+  id: '/scrape',
+  path: '/scrape',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PipelinesRoute = PipelinesRouteImport.update({
   id: '/pipelines',
   path: '/pipelines',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OutreachRoute = OutreachRouteImport.update({
+  id: '/outreach',
+  path: '/outreach',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ExperiencedRoute = ExperiencedRouteImport.update({
@@ -91,7 +109,10 @@ export interface FileRoutesByFullPath {
   '/competitions': typeof CompetitionsRoute
   '/dashboard': typeof DashboardRoute
   '/experienced': typeof ExperiencedRouteWithChildren
+  '/outreach': typeof OutreachRoute
   '/pipelines': typeof PipelinesRoute
+  '/scrape': typeof ScrapeRoute
+  '/scrape-results': typeof ScrapeResultsRoute
   '/admin/health': typeof AdminHealthRoute
   '/experienced/$campaignId': typeof ExperiencedCampaignIdRoute
   '/experienced/candidates': typeof ExperiencedCandidatesRoute
@@ -105,7 +126,10 @@ export interface FileRoutesByTo {
   '/competitions': typeof CompetitionsRoute
   '/dashboard': typeof DashboardRoute
   '/experienced': typeof ExperiencedRouteWithChildren
+  '/outreach': typeof OutreachRoute
   '/pipelines': typeof PipelinesRoute
+  '/scrape': typeof ScrapeRoute
+  '/scrape-results': typeof ScrapeResultsRoute
   '/admin/health': typeof AdminHealthRoute
   '/experienced/$campaignId': typeof ExperiencedCampaignIdRoute
   '/experienced/candidates': typeof ExperiencedCandidatesRoute
@@ -120,7 +144,10 @@ export interface FileRoutesById {
   '/competitions': typeof CompetitionsRoute
   '/dashboard': typeof DashboardRoute
   '/experienced': typeof ExperiencedRouteWithChildren
+  '/outreach': typeof OutreachRoute
   '/pipelines': typeof PipelinesRoute
+  '/scrape': typeof ScrapeRoute
+  '/scrape-results': typeof ScrapeResultsRoute
   '/admin/health': typeof AdminHealthRoute
   '/experienced/$campaignId': typeof ExperiencedCampaignIdRoute
   '/experienced/candidates': typeof ExperiencedCandidatesRoute
@@ -136,7 +163,10 @@ export interface FileRouteTypes {
     | '/competitions'
     | '/dashboard'
     | '/experienced'
+    | '/outreach'
     | '/pipelines'
+    | '/scrape'
+    | '/scrape-results'
     | '/admin/health'
     | '/experienced/$campaignId'
     | '/experienced/candidates'
@@ -150,7 +180,10 @@ export interface FileRouteTypes {
     | '/competitions'
     | '/dashboard'
     | '/experienced'
+    | '/outreach'
     | '/pipelines'
+    | '/scrape'
+    | '/scrape-results'
     | '/admin/health'
     | '/experienced/$campaignId'
     | '/experienced/candidates'
@@ -164,7 +197,10 @@ export interface FileRouteTypes {
     | '/competitions'
     | '/dashboard'
     | '/experienced'
+    | '/outreach'
     | '/pipelines'
+    | '/scrape'
+    | '/scrape-results'
     | '/admin/health'
     | '/experienced/$campaignId'
     | '/experienced/candidates'
@@ -179,7 +215,10 @@ export interface RootRouteChildren {
   CompetitionsRoute: typeof CompetitionsRoute
   DashboardRoute: typeof DashboardRoute
   ExperiencedRoute: typeof ExperiencedRouteWithChildren
+  OutreachRoute: typeof OutreachRoute
   PipelinesRoute: typeof PipelinesRoute
+  ScrapeRoute: typeof ScrapeRoute
+  ScrapeResultsRoute: typeof ScrapeResultsRoute
   AdminHealthRoute: typeof AdminHealthRoute
   ApiFirecrawlChar43serverRoute: typeof ApiFirecrawlChar43serverRoute
   ApiScrapeLinkedinChar43serverRoute: typeof ApiScrapeLinkedinChar43serverRoute
@@ -188,11 +227,32 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/scrape-results': {
+      id: '/scrape-results'
+      path: '/scrape-results'
+      fullPath: '/scrape-results'
+      preLoaderRoute: typeof ScrapeResultsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scrape': {
+      id: '/scrape'
+      path: '/scrape'
+      fullPath: '/scrape'
+      preLoaderRoute: typeof ScrapeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pipelines': {
       id: '/pipelines'
       path: '/pipelines'
       fullPath: '/pipelines'
       preLoaderRoute: typeof PipelinesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/outreach': {
+      id: '/outreach'
+      path: '/outreach'
+      fullPath: '/outreach'
+      preLoaderRoute: typeof OutreachRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/experienced': {
@@ -296,7 +356,10 @@ const rootRouteChildren: RootRouteChildren = {
   CompetitionsRoute: CompetitionsRoute,
   DashboardRoute: DashboardRoute,
   ExperiencedRoute: ExperiencedRouteWithChildren,
+  OutreachRoute: OutreachRoute,
   PipelinesRoute: PipelinesRoute,
+  ScrapeRoute: ScrapeRoute,
+  ScrapeResultsRoute: ScrapeResultsRoute,
   AdminHealthRoute: AdminHealthRoute,
   ApiFirecrawlChar43serverRoute: ApiFirecrawlChar43serverRoute,
   ApiScrapeLinkedinChar43serverRoute: ApiScrapeLinkedinChar43serverRoute,

@@ -14,12 +14,15 @@ import {
 
 interface TalentContextValue {
   pipelines: Pipeline[];
-  /** candidateId -> pipelineId */
+  /** student candidateId -> pipelineId */
   membership: Record<string, string>;
+  /** experienced candidateId -> pipelineId */
+  expMembership: Record<string, string>;
   notes: Record<string, string>;
   openCandidateId: string | null;
   openDrawer: (id: string) => void;
   closeDrawer: () => void;
+  // Student pipeline
   addToPipeline: (candidateId: string, pipelineId: string) => void;
   removeFromPipeline: (candidateId: string) => void;
   createPipeline: (name: string) => Pipeline;
@@ -27,6 +30,13 @@ interface TalentContextValue {
   pipelineOf: (candidateId: string) => Pipeline | null;
   isInPipeline: (candidateId: string) => boolean;
   pipelineMemberIds: (pipelineId: string) => string[];
+  // Experienced pipeline
+  addToExpPipeline: (candidateId: string, pipelineId: string) => void;
+  removeFromExpPipeline: (candidateId: string) => void;
+  isInExpPipeline: (candidateId: string) => boolean;
+  expPipelineOf: (candidateId: string) => Pipeline | null;
+  expMemberIds: (pipelineId: string) => string[];
+  // Combined count (student + experienced) for nav badge
   pipelineMemberCount: (pipelineId: string) => number;
 }
 
@@ -36,6 +46,8 @@ export function TalentProvider({ children }: { children: ReactNode }) {
   const [pipelines, setPipelines] = useState<Pipeline[]>(MOCK_PIPELINES);
   const [membership, setMembership] =
     useState<Record<string, string>>(INITIAL_MEMBERSHIP);
+  const [expMembership, setExpMembership] =
+    useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [openCandidateId, setOpenCandidateId] = useState<string | null>(null);
 
@@ -44,14 +56,21 @@ export function TalentProvider({ children }: { children: ReactNode }) {
       const pid = membership[candidateId];
       return pid ? pipelines.find((p) => p.id === pid) ?? null : null;
     };
+    const expPipelineOf = (candidateId: string) => {
+      const pid = expMembership[candidateId];
+      return pid ? pipelines.find((p) => p.id === pid) ?? null : null;
+    };
 
     return {
       pipelines,
       membership,
+      expMembership,
       notes,
       openCandidateId,
       openDrawer: (id) => setOpenCandidateId(id),
       closeDrawer: () => setOpenCandidateId(null),
+
+      // Student pipeline
       addToPipeline: (candidateId, pipelineId) =>
         setMembership((m) => ({ ...m, [candidateId]: pipelineId })),
       removeFromPipeline: (candidateId) =>
@@ -77,11 +96,30 @@ export function TalentProvider({ children }: { children: ReactNode }) {
       pipelineMemberIds: (pipelineId) =>
         Object.entries(membership)
           .filter(([, pid]) => pid === pipelineId)
-          .map(([candidateId]) => candidateId),
+          .map(([id]) => id),
+
+      // Experienced pipeline
+      addToExpPipeline: (candidateId, pipelineId) =>
+        setExpMembership((m) => ({ ...m, [candidateId]: pipelineId })),
+      removeFromExpPipeline: (candidateId) =>
+        setExpMembership((m) => {
+          const next = { ...m };
+          delete next[candidateId];
+          return next;
+        }),
+      isInExpPipeline: (candidateId) => Boolean(expMembership[candidateId]),
+      expPipelineOf,
+      expMemberIds: (pipelineId) =>
+        Object.entries(expMembership)
+          .filter(([, pid]) => pid === pipelineId)
+          .map(([id]) => id),
+
+      // Combined count
       pipelineMemberCount: (pipelineId) =>
-        Object.values(membership).filter((pid) => pid === pipelineId).length,
+        Object.values(membership).filter((pid) => pid === pipelineId).length +
+        Object.values(expMembership).filter((pid) => pid === pipelineId).length,
     };
-  }, [pipelines, membership, notes, openCandidateId]);
+  }, [pipelines, membership, expMembership, notes, openCandidateId]);
 
   return (
     <TalentContext.Provider value={value}>{children}</TalentContext.Provider>

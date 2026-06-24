@@ -32,6 +32,7 @@ import {
   type CandidateSource,
 } from "@/data/talent";
 import { ROLE_FIT_STYLE, type RoleFitLabel } from "@/lib/utils/rolefit";
+import { CULTURE_TIER_META, type CultureTier } from "@/lib/utils/culturefit";
 import { useSearchContext } from "@/context/SearchContext";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +44,12 @@ const ROLE_FIT_OPTIONS: RoleFitLabel[] = [
   "Founder's Office",
   "BDR / Sales",
   "Marketing",
+];
+
+const CULTURE_TIER_OPTIONS: { value: CultureTier; label: string }[] = [
+  { value: "strong", label: "Strong Fit" },
+  { value: "good",   label: "Good Fit" },
+  { value: "partial", label: "Partial Fit" },
 ];
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -97,6 +104,7 @@ export function FilterPanel() {
 
   const sources = (filters.sources ?? []) as CandidateSource[];
   const roleFitLabels = (filters.role_fit_labels ?? []) as RoleFitLabel[];
+  const cultureFitTiers = (filters.culture_fit_tiers ?? []) as CultureTier[];
 
   const toggle = (list: string[], v: string) =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
@@ -160,6 +168,47 @@ export function FilterPanel() {
                     "rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
                     active
                       ? ROLE_FIT_STYLE[label]
+                      : "border-border bg-background text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-2 border-b border-border px-4 py-3">
+          <div className="flex items-center justify-between">
+            <SectionLabel>Culture Fit</SectionLabel>
+            {cultureFitTiers.length > 0 && (
+              <button
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+                onClick={() => updateFilter("culture_fit_tiers", [])}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {CULTURE_TIER_OPTIONS.map(({ value, label }) => {
+              const active = cultureFitTiers.includes(value);
+              const meta = CULTURE_TIER_META[value];
+              return (
+                <button
+                  key={value}
+                  onClick={() =>
+                    updateFilter(
+                      "culture_fit_tiers",
+                      (active
+                        ? cultureFitTiers.filter((t) => t !== value)
+                        : [...cultureFitTiers, value]) as CultureTier[],
+                    )
+                  }
+                  className={cn(
+                    "rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+                    active
+                      ? meta.className
                       : "border-border bg-background text-muted-foreground hover:text-foreground",
                   )}
                 >

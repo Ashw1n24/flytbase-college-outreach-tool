@@ -16,6 +16,7 @@ import {
   UserSearch,
   Zap,
   DollarSign,
+  Send,
 } from "lucide-react";
 import { TopNav } from "@/components/talent/TopNav";
 import { AddToPipelineMenu } from "@/components/talent/AddToPipelineMenu";
@@ -41,6 +42,10 @@ import {
   getCampaignCandidatesFn,
   searchExperiencedCandidatesFn,
 } from "@/lib/api/experienced.functions";
+import {
+  addToOutreachQueueFn,
+  getOutreachTemplatesFn,
+} from "@/lib/api/outreach.functions";
 import { getApifyCreditsFn } from "@/lib/api/health.functions";
 import {
   Dialog,
@@ -964,6 +969,7 @@ function CandidateView({
     ...DEFAULT_CV_FILTERS,
     companyId: initialCompanyId === "all" ? "" : initialCompanyId,
   });
+  const [outreachOpen, setOutreachOpen] = useState(false);
 
   const queryParams = {
     campaignId,
@@ -1030,9 +1036,22 @@ function CandidateView({
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            {candidates.length} candidate{candidates.length !== 1 ? "s" : ""}
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {candidates.length} candidate{candidates.length !== 1 ? "s" : ""}
+            </p>
+            {candidates.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 text-xs"
+                onClick={() => setOutreachOpen(true)}
+              >
+                <Send className="h-3.5 w-3.5" />
+                Queue for Outreach
+              </Button>
+            )}
+          </div>
           {candidates.map((c) => (
             <CandidateCard
               key={c.id}
@@ -1043,7 +1062,189 @@ function CandidateView({
           ))}
         </div>
       )}
+
+      <OutreachQueueDialog
+        open={outreachOpen}
+        onClose={() => setOutreachOpen(false)}
+        candidateIds={(candidates as Candidate[]).map((c) => c.id)}
+        campaignId={campaignId}
+        sampleCandidate={(candidates as Candidate[])[0] ?? null}
+      />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Queue for Outreach dialog
+// ---------------------------------------------------------------------------
+
+function renderTemplatePreview(body: string, sample: Candidate | null): string {
+  if (!sample) return body;
+  const vars: Record<string, string> = {
+    candidate_name: sample.full_name ?? "",
+    role:           sample.current_title ?? "",
+    company:        sample.current_company ?? "",
+    skills:         (sample.skills ?? []).slice(0, 3).join(", "),
+    sender_name:    "FlytBase Talent",
+  };
+  return body.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`);
+}
+
+function OutreachQueueDialog({
+  open,
+  onClose,
+  candidateIds,
+  campaignId,
+  sampleCandidate,
+}: {
+  open: boolean;
+  onClose: () => void;
+  candidateIds: string[];
+  campaignId: string;
+  sampleCandidate?: Candidate | null;
+}) {
+  const [channel, setChannel]     = useState<"email" | "linkedin">("email");
+  const [templateId, setTemplateId] = useState<string>("");
+
+  const { data: templates } = useQuery({
+    queryKey: ["outreach-templates"],
+    queryFn:  () => getOutreachTemplatesFn(),
+    enabled:  open,
+  });
+
+  const expTemplates = (templates ?? []).filter(
+    (t) =>
+      (t.pipeline === "experienced" || t.pipeline === "both") &&
+      t.message_type === "initial" &&
+      t.channel === channel,
+  );
+
+  // Auto-select first template when channel changes
+  useEffect(() => {
+    if (expTemplates.length > 0 && !expTemplates.find((t) => t.id === templateId)) {
+      setTemplateId(expTemplates[0].id);
+    }
+  }, [channel, expTemplates.length]);
+
+  const queueMutation = useMutation({
+    mutationFn: () =>
+      addToOutreachQueueFn({
+        data: {
+          candidateIds,
+          candidateType: "experienced",
+          channel,
+          templateId,
+          campaignId,
+        },
+      }),
+    onSuccess: (result) => {
+      alert(`Queued ${result.queued} candidate(s) for outreach (${result.skipped} skipped — already queued or missing contact info).`);
+      onClose();
+    },
+  });
+
+  const selectedTemplate = expTemplates.find((t) => t.id === templateId);
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-base">Queue for Outreach</DialogTitle>
+          <DialogDescription>
+            {candidateIds.length} candidate{candidateIds.length !== 1 ? "s" : ""} will be added to the outreach queue as drafts.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 pt-1">
+          {/* Channel */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Channel</label>
+            <div className="flex gap-2">
+              {(["email", "linkedin"] as const).map((ch) => (
+                <button
+                  key={ch}
+                  onClick={() => setChannel(ch)}
+                  className={cn(
+                    "flex-1 rounded-md border px-3 py-2 text-xs capitalize transition-colors",
+                    channel === ch
+                      ? "border-primary bg-primary/10 text-foreground font-medium"
+                      : "border-border text-muted-foreground hover:border-primary/40",
+                  )}
+                >
+                  {ch}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Template */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Template</label>
+            {expTemplates.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No templates found. Run the DB migration first.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {expTemplates.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTemplateId(t.id)}
+                    className={cn(
+                      "w-full text-left rounded-md border px-3 py-2 text-xs transition-colors",
+                      templateId === t.id
+                        ? "border-primary bg-primary/10"
+                        : "border-border hover:border-primary/40",
+                    )}
+                  >
+                    <span className="font-medium">{t.name}</span>
+                    {t.subject_template && (
+                      <span className="block text-muted-foreground mt-0.5 truncate">
+                        {t.subject_template}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Template preview */}
+          {selectedTemplate?.body_template && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Preview{sampleCandidate ? ` (sample: ${sampleCandidate.full_name})` : ""}
+              </label>
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5 text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto">
+                {renderTemplatePreview(selectedTemplate.body_template, sampleCandidate ?? null)}
+              </div>
+              {!sampleCandidate && (
+                <p className="text-[10px] text-muted-foreground">
+                  Variables like <span className="font-mono">{"{{candidate_name}}"}</span> will be filled per candidate when sent.
+                </p>
+              )}
+            </div>
+          )}
+
+          {queueMutation.error && (
+            <p className="text-xs text-destructive">
+              {queueMutation.error instanceof Error ? queueMutation.error.message : "Failed"}
+            </p>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={queueMutation.isPending}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => queueMutation.mutate()}
+            disabled={!templateId || queueMutation.isPending}
+          >
+            {queueMutation.isPending ? "Queuing…" : "Queue"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

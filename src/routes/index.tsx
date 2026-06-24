@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { GraduationCap, Briefcase, ArrowRight } from "lucide-react";
+import { GraduationCap, Briefcase, ArrowRight, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({
@@ -34,7 +34,7 @@ function Landing() {
         </div>
       </div>
 
-      <div className="grid w-full max-w-2xl grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid w-full max-w-2xl grid-cols-1 gap-4 sm:grid-cols-3">
         <Link
           to="/dashboard"
           className={cn(
@@ -77,6 +77,29 @@ function Landing() {
             </h2>
             <p className="mt-1 text-sm text-muted-foreground leading-snug">
               Professionals with 3+ years of experience
+            </p>
+          </div>
+        </Link>
+
+        <Link
+          to="/outreach"
+          className={cn(
+            "group flex flex-col gap-4 rounded-xl border border-border bg-card p-6 shadow-sm",
+            "transition-all hover:border-primary/40 hover:shadow-md hover:bg-accent/30",
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Send className="h-5 w-5" />
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-foreground">
+              Outreach
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground leading-snug">
+              Email &amp; LinkedIn campaigns with follow-ups
             </p>
           </div>
         </Link>
