@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 import {
   getOutreachTemplatesFn,
   upsertOutreachTemplateFn,
+  deleteOutreachTemplateFn,
   getOutreachMessagesFn,
   getOutreachStatsFn,
   updateMessageStatusFn,
@@ -92,6 +93,7 @@ interface OutreachTemplate {
   channel: string;
   subject_template: string | null;
   body_template: string;
+  created_at?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -1261,9 +1263,25 @@ function TemplateCard({ tmpl }: { tmpl: OutreachTemplate }) {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteOutreachTemplateFn({ data: { id: tmpl.id } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["outreach-templates"] });
+    },
+  });
+
+  const handleDelete = () => {
+    if (!confirm(`Delete template "${tmpl.name}"?`)) return;
+    deleteMutation.mutate();
+  };
+
   const pipelineLabel =
     tmpl.pipeline === "both" ? "All" :
     tmpl.pipeline === "student" ? "Students" : "Experienced";
+
+  const createdDate = tmpl.created_at
+    ? new Date(tmpl.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+    : null;
 
   return (
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
@@ -1279,16 +1297,27 @@ function TemplateCard({ tmpl }: { tmpl: OutreachTemplate }) {
             </span>
           </div>
         </div>
-        {!editing && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 shrink-0"
-            onClick={() => setEditing(true)}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-        )}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {createdDate && (
+            <span className="text-[10px] text-muted-foreground">{createdDate}</span>
+          )}
+          {!editing && (
+            <div className="flex gap-0.5">
+              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditing(true)}>
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Variables reference */}

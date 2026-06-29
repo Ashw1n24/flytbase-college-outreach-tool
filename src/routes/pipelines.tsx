@@ -1,16 +1,19 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Users, Trash2, FolderKanban, Download, ExternalLink, Send, Pencil, Check, X } from "lucide-react";
 import { TopNav } from "@/components/talent/TopNav";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import { useTalent } from "@/context/TalentContext";
 import { getCandidatesByIdsFn } from "@/lib/api/candidates.functions";
 import { getExpCandidatesByIdsFn } from "@/lib/api/experienced.functions";
-import { addToOutreachQueueFn, getOutreachTemplatesFn } from "@/lib/api/outreach.functions";
+import { addToOutreachQueueFn, getOutreachTemplatesFn, upsertOutreachTemplateFn } from "@/lib/api/outreach.functions";
 import { EMAIL_CONFIDENCE_LABEL, TIER_META } from "@/data/talent";
 import { cn } from "@/lib/utils";
 
@@ -42,19 +45,55 @@ const EXP_TIER_META: Record<string, { label: string; badge: string }> = {
 // Outreach queue dialog for pipeline
 // ---------------------------------------------------------------------------
 
+type DialogMode = "template" | "custom";
+type StepKey = "initial" | "followup_1" | "followup_2";
+interface StepForm { enabled: boolean; subject_template: string; body_template: string; }
+const EMPTY_STEP: StepForm = { enabled: false, subject_template: "", body_template: "" };
+const DIALOG_STEPS: { key: StepKey; label: string; shortLabel: string }[] = [
+  { key: "initial",    label: "Initial",     shortLabel: "1" },
+  { key: "followup_1", label: "Follow-up 1", shortLabel: "2" },
+  { key: "followup_2", label: "Follow-up 2", shortLabel: "3" },
+];
+
 function PipelineOutreachDialog({
   open,
   onClose,
   candidateIds,
   candidateType = "experienced",
+  pipelineName = "Pipeline",
 }: {
   open: boolean;
   onClose: () => void;
   candidateIds: string[];
   candidateType?: "student" | "experienced";
+  pipelineName?: string;
 }) {
+  const queryClient = useQueryClient();
+  const [mode, setMode]             = useState<DialogMode>("template");
   const [channel, setChannel]       = useState<"email" | "linkedin">("email");
   const [templateId, setTemplateId] = useState("");
+
+  // Custom-mode state
+  const [steps, setSteps]           = useState<Record<StepKey, StepForm>>({
+    initial:    { ...EMPTY_STEP, enabled: true },
+    followup_1: { ...EMPTY_STEP },
+    followup_2: { ...EMPTY_STEP },
+  });
+  const [activeStep, setActiveStep] = useState<StepKey>("initial");
+
+  const setStep = (key: StepKey, patch: Partial<StepForm>) =>
+    setSteps((s) => ({ ...s, [key]: { ...s[key], ...patch } }));
+
+  // Reset on open
+  useEffect(() => {
+    if (open) {
+      setMode("template");
+      setChannel("email");
+      setTemplateId("");
+      setSteps({ initial: { ...EMPTY_STEP, enabled: true }, followup_1: { ...EMPTY_STEP }, followup_2: { ...EMPTY_STEP } });
+      setActiveStep("initial");
+    }
+  }, [open]);
 
   const { data: templates } = useQuery({
     queryKey: ["outreach-templates"],
@@ -70,25 +109,87 @@ function PipelineOutreachDialog({
   );
 
   useEffect(() => {
-    if (filteredTemplates.length > 0 && !filteredTemplates.find((t) => t.id === templateId)) {
+    if (mode === "template" && filteredTemplates.length > 0 && !filteredTemplates.find((t) => t.id === templateId)) {
       setTemplateId(filteredTemplates[0].id);
     }
-  }, [channel, filteredTemplates.length]);
+  }, [channel, mode, filteredTemplates.length]);
 
-  const queueMutation = useMutation({
+  // Template-mode queue
+  const templateQueueMutation = useMutation({
     mutationFn: () =>
       addToOutreachQueueFn({ data: { candidateIds, candidateType, channel, templateId } }),
     onSuccess: (result) => {
-      alert(`Queued ${result.queued} candidate(s) as drafts. ${result.skipped} skipped (already queued or missing contact info).`);
+      alert(`Queued ${result.queued} candidate(s) as drafts. ${result.skipped} skipped.`);
       onClose();
     },
   });
 
+  // Custom-mode queue: save templates first, then queue
+  const customQueueMutation = useMutation({
+    mutationFn: async () => {
+      const pipeline = candidateType === "student" ? "student" as const : "experienced" as const;
+      // 1. Save initial (required) and capture its ID
+      const initResult = await upsertOutreachTemplateFn({
+        data: {
+          name:             pipelineName,
+          pipeline,
+          message_type:     "initial",
+          channel,
+          subject_template: channel === "email" && steps.initial.subject_template ? steps.initial.subject_template : null,
+          body_template:    steps.initial.body_template,
+        },
+      });
+      const initialTemplateId = initResult.id!;
+      // 2. Save follow-ups if enabled
+      if (steps.followup_1.enabled && steps.followup_1.body_template.trim()) {
+        await upsertOutreachTemplateFn({
+          data: {
+            name:             `${pipelineName} — Follow-up 1`,
+            pipeline,
+            message_type:     "followup_1",
+            channel,
+            subject_template: channel === "email" && steps.followup_1.subject_template ? steps.followup_1.subject_template : null,
+            body_template:    steps.followup_1.body_template,
+          },
+        });
+      }
+      if (steps.followup_2.enabled && steps.followup_2.body_template.trim()) {
+        await upsertOutreachTemplateFn({
+          data: {
+            name:             `${pipelineName} — Follow-up 2`,
+            pipeline,
+            message_type:     "followup_2",
+            channel,
+            subject_template: channel === "email" && steps.followup_2.subject_template ? steps.followup_2.subject_template : null,
+            body_template:    steps.followup_2.body_template,
+          },
+        });
+      }
+      // 3. Queue with the initial template
+      return addToOutreachQueueFn({ data: { candidateIds, candidateType, channel, templateId: initialTemplateId } });
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["outreach-templates"] });
+      const savedCount = [steps.followup_1, steps.followup_2].filter((s) => s.enabled && s.body_template.trim()).length + 1;
+      alert(`Queued ${result.queued} candidate(s) as drafts. ${result.skipped} skipped.\nTemplate saved as "${pipelineName}" (${savedCount} message${savedCount !== 1 ? "s" : ""}).`);
+      onClose();
+    },
+  });
+
+  const isPending = templateQueueMutation.isPending || customQueueMutation.isPending;
+  const queueError = templateQueueMutation.error ?? customQueueMutation.error;
+
+  const enabledSteps = DIALOG_STEPS.filter((s) => steps[s.key].enabled);
+  const customCanQueue =
+    steps.initial.body_template.trim().length > 0 && candidateIds.length > 0;
+
   const selectedTemplate = filteredTemplates.find((t) => t.id === templateId);
+
+  const VARS_HINT = "{{name}}, {{role}}, {{company}}, {{college}}, {{branch}}, {{sender_name}}";
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle className="text-base">Queue Pipeline for Outreach</DialogTitle>
           <DialogDescription>
@@ -118,63 +219,204 @@ function PipelineOutreachDialog({
             </div>
           </div>
 
-          {/* Template */}
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium text-muted-foreground">Template</p>
-            {filteredTemplates.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No templates for this channel.</p>
-            ) : (
-              <div className="space-y-1.5">
-                {filteredTemplates.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => setTemplateId(t.id)}
-                    className={cn(
-                      "w-full text-left rounded-md border px-3 py-2 text-xs transition-colors",
-                      templateId === t.id
-                        ? "border-primary bg-primary/10"
-                        : "border-border hover:border-primary/40",
-                    )}
-                  >
-                    <span className="font-medium">{t.name}</span>
-                    {t.subject_template && (
-                      <span className="block text-muted-foreground mt-0.5 truncate">{t.subject_template}</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
+          {/* Mode toggle */}
+          <div className="flex rounded-md border border-border overflow-hidden text-xs">
+            {(["template", "custom"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={cn(
+                  "flex-1 py-2 transition-colors font-medium",
+                  mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent",
+                )}
+              >
+                {m === "template" ? "Use Existing Template" : "Write Custom Message"}
+              </button>
+            ))}
           </div>
 
-          {/* Template preview */}
-          {selectedTemplate?.body_template && (
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground">Preview</p>
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5 text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto">
-                {selectedTemplate.body_template}
+          {/* ── Template mode ── */}
+          {mode === "template" && (
+            <>
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">Select template</p>
+                {filteredTemplates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No templates for this channel. Switch to "Write Custom Message" to create one.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {filteredTemplates.map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => setTemplateId(t.id)}
+                        className={cn(
+                          "w-full text-left rounded-md border px-3 py-2 text-xs transition-colors",
+                          templateId === t.id ? "border-primary bg-primary/10" : "border-border hover:border-primary/40",
+                        )}
+                      >
+                        <span className="font-medium">{t.name}</span>
+                        {t.subject_template && (
+                          <span className="block text-muted-foreground mt-0.5 truncate">{t.subject_template}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              <p className="text-[10px] text-muted-foreground">
-                Variables like <span className="font-mono">{"{{candidate_name}}"}</span> are filled per candidate at send time.
+
+              {selectedTemplate?.body_template && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">Preview</p>
+                  <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5 text-[11px] text-muted-foreground whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto">
+                    {selectedTemplate.body_template}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    Variables like <span className="font-mono">{"{{candidate_name}}"}</span> are filled per candidate at send time.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── Custom mode ── */}
+          {mode === "custom" && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-muted-foreground">
+                Will be saved as template <span className="font-medium text-foreground">"{pipelineName}"</span>. Variables: <code className="font-mono">{VARS_HINT}</code>
+              </p>
+
+              {/* Step tabs */}
+              <div className="border border-border rounded-lg overflow-hidden">
+                <div className="flex border-b border-border bg-muted/40">
+                  {DIALOG_STEPS.map((s) => {
+                    const step = steps[s.key];
+                    const isActive = activeStep === s.key;
+                    return (
+                      <button
+                        key={s.key}
+                        type="button"
+                        onClick={() => setActiveStep(s.key)}
+                        className={cn(
+                          "flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors border-r border-border last:border-r-0",
+                          isActive ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+                        )}
+                      >
+                        <span className={cn(
+                          "flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold",
+                          step.enabled ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                        )}>
+                          {s.shortLabel}
+                        </span>
+                        {s.label}
+                        {s.key !== "initial" && step.enabled && step.body_template.trim() && (
+                          <Check className="h-3 w-3 text-green-500" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {DIALOG_STEPS.map((s) => {
+                  if (s.key !== activeStep) return null;
+                  const step = steps[s.key];
+                  return (
+                    <div key={s.key} className="p-3 space-y-2.5">
+                      {s.key !== "initial" && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setStep(s.key, { enabled: !step.enabled })}
+                            className={cn(
+                              "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
+                              step.enabled ? "bg-primary" : "bg-muted",
+                            )}
+                          >
+                            <span className={cn(
+                              "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow ring-0 transition-transform",
+                              step.enabled ? "translate-x-4" : "translate-x-0",
+                            )} />
+                          </button>
+                          <Label
+                            className="text-xs text-muted-foreground cursor-pointer"
+                            onClick={() => setStep(s.key, { enabled: !step.enabled })}
+                          >
+                            {step.enabled ? `Include ${s.label}` : `Skip ${s.label}`}
+                          </Label>
+                        </div>
+                      )}
+
+                      {step.enabled && (
+                        <>
+                          {channel === "email" && (
+                            <div className="space-y-1">
+                              <Label className="text-xs font-medium text-muted-foreground">
+                                Subject{s.key !== "initial" && <span className="ml-1 text-muted-foreground/60">(blank = reply in thread)</span>}
+                              </Label>
+                              <Input
+                                value={step.subject_template}
+                                onChange={(e) => setStep(s.key, { subject_template: e.target.value })}
+                                placeholder={s.key === "initial" ? "e.g. Opportunity at FlytBase — {{role}}" : "Leave blank to continue thread"}
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                          )}
+                          <div className="space-y-1">
+                            <Label className="text-xs font-medium text-muted-foreground">Message body</Label>
+                            <Textarea
+                              value={step.body_template}
+                              onChange={(e) => setStep(s.key, { body_template: e.target.value })}
+                              placeholder={
+                                s.key === "initial"
+                                  ? "Hi {{name}},\n\nI came across your profile and..."
+                                  : "Hi {{name}},\n\nJust following up on my previous message..."
+                              }
+                              className="min-h-[120px] text-xs resize-y font-mono"
+                            />
+                          </div>
+                        </>
+                      )}
+                      {!step.enabled && s.key !== "initial" && (
+                        <p className="text-xs text-muted-foreground py-3 text-center">
+                          Toggle on to add a {s.label.toLowerCase()} message.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <p className="text-[11px] text-muted-foreground">
+                Saves {enabledSteps.length} template{enabledSteps.length !== 1 ? "s" : ""}: {enabledSteps.map((s) => s.label).join(", ")}
               </p>
             </div>
           )}
 
-          {queueMutation.error && (
+          {queueError && (
             <p className="text-xs text-destructive">
-              {queueMutation.error instanceof Error ? queueMutation.error.message : "Failed"}
+              {queueError instanceof Error ? queueError.message : "Failed"}
             </p>
           )}
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="outline" size="sm" onClick={onClose} disabled={queueMutation.isPending}>Cancel</Button>
-          <Button
-            size="sm"
-            onClick={() => queueMutation.mutate()}
-            disabled={!templateId || candidateIds.length === 0 || queueMutation.isPending}
-          >
-            {queueMutation.isPending ? "Queuing…" : "Queue"}
-          </Button>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={isPending}>Cancel</Button>
+          {mode === "template" ? (
+            <Button
+              size="sm"
+              onClick={() => templateQueueMutation.mutate()}
+              disabled={!templateId || candidateIds.length === 0 || isPending}
+            >
+              {isPending ? "Queuing…" : "Queue"}
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              onClick={() => customQueueMutation.mutate()}
+              disabled={!customCanQueue || isPending}
+            >
+              {isPending ? "Saving & Queuing…" : "Save & Queue"}
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -590,12 +832,14 @@ function PipelinesPage() {
         onClose={() => setOutreachOpen(false)}
         candidateIds={experiencedIds}
         candidateType="experienced"
+        pipelineName={current?.name ?? "Pipeline"}
       />
       <PipelineOutreachDialog
         open={studentOutreachOpen}
         onClose={() => setStudentOutreachOpen(false)}
         candidateIds={studentIds}
         candidateType="student"
+        pipelineName={current?.name ?? "Pipeline"}
       />
     </div>
   );

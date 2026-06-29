@@ -128,12 +128,27 @@ export const upsertOutreachTemplateFn = createServerFn({ method: "POST" })
         .update(fields)
         .eq("id", id);
       if (error) throw new Error(`Failed to update template: ${error.message}`);
+      return { ok: true, id };
     } else {
-      const { error } = await supabase
+      const { data: inserted, error } = await supabase
         .from("outreach_templates")
-        .insert(fields);
+        .insert(fields)
+        .select("id")
+        .single();
       if (error) throw new Error(`Failed to create template: ${error.message}`);
+      return { ok: true, id: inserted.id as string };
     }
+  });
+
+export const deleteOutreachTemplateFn = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().uuid() }))
+  .handler(async ({ data }) => {
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase
+      .from("outreach_templates")
+      .delete()
+      .eq("id", data.id);
+    if (error) throw new Error(`Failed to delete template: ${error.message}`);
     return { ok: true };
   });
 
@@ -564,10 +579,11 @@ export const sendApprovedBatchFn = createServerFn({ method: "POST" })
           }).eq("id", result.id);
           failed++;
         } else {
+          // chat_id may be null for existing connections — message was still sent,
+          // just no reply tracking via webhook
           await supabase.from("outreach_messages").update({
             status:            "sent",
-            // Reuse gmail_thread_id to store the Unipile chat_id for webhook matching
-            gmail_thread_id:   result.chatId,
+            gmail_thread_id:   result.chatId ?? null,
             sent_at:           new Date().toISOString(),
             next_follow_up_at: followUpAt.toISOString(),
           }).eq("id", result.id);

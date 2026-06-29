@@ -100,14 +100,10 @@ export async function sendLinkedInMessage(
     text,
   }) as any;
 
-  // Extract chat_id from result — Unipile may return it at different paths
-  const chatId =
-    result?.chat_id ??
-    result?.data?.chat_id ??
-    result?.id ??
-    result?.data?.id ??
-    null;
-
+  // SDK returns { object: "ChatStarted", chat_id: string|null, message_id: string|null }
+  console.log("[unipile] startNewChat response — object:", result?.object, "chat_id:", result?.chat_id, "message_id:", result?.message_id);
+  // chat_id can be null for existing connections — use message_id as fallback for tracking
+  const chatId = result?.chat_id ?? result?.message_id ?? null;
   return chatId ? String(chatId) : null;
 }
 
