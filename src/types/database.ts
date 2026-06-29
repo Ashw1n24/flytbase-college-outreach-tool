@@ -190,13 +190,23 @@ export interface Database {
           status: "pending" | "searching" | "done" | "error";
           candidate_count: number;
           company_count: number;
+          type: string;
+          target_company_ids: string[];
+          target_tags: string[];
           created_at: string;
           updated_at: string;
         };
         Insert: Omit<
           Database["public"]["Tables"]["campaigns"]["Row"],
           "id" | "created_at" | "updated_at"
-        > & { id?: string; created_at?: string; updated_at?: string };
+        > & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          type?: string;
+          target_company_ids?: string[];
+          target_tags?: string[];
+        };
         Update: Partial<Database["public"]["Tables"]["campaigns"]["Insert"]>;
       };
       experienced_candidates: {
@@ -244,6 +254,24 @@ export interface Database {
           "id" | "created_at"
         > & { id?: string; created_at?: string };
         Update: Partial<Database["public"]["Tables"]["campaign_companies"]["Insert"]>;
+      };
+      target_companies: {
+        Row: {
+          id: string;
+          name: string;
+          linkedin_url: string | null;
+          industry: string | null;
+          size: string | null;
+          why_similar: string | null;
+          tags: string[];
+          is_active: boolean;
+          created_at: string;
+        };
+        Insert: Omit<
+          Database["public"]["Tables"]["target_companies"]["Row"],
+          "id" | "created_at"
+        > & { id?: string; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["target_companies"]["Insert"]>;
       };
     };
       outreach_templates: {

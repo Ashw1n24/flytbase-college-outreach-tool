@@ -46,10 +46,12 @@ function PipelineOutreachDialog({
   open,
   onClose,
   candidateIds,
+  candidateType = "experienced",
 }: {
   open: boolean;
   onClose: () => void;
   candidateIds: string[];
+  candidateType?: "student" | "experienced";
 }) {
   const [channel, setChannel]       = useState<"email" | "linkedin">("email");
   const [templateId, setTemplateId] = useState("");
@@ -62,7 +64,7 @@ function PipelineOutreachDialog({
 
   const filteredTemplates = (templates ?? []).filter(
     (t) =>
-      (t.pipeline === "experienced" || t.pipeline === "both") &&
+      (t.pipeline === candidateType || t.pipeline === "both") &&
       t.message_type === "initial" &&
       t.channel === channel,
   );
@@ -75,7 +77,7 @@ function PipelineOutreachDialog({
 
   const queueMutation = useMutation({
     mutationFn: () =>
-      addToOutreachQueueFn({ data: { candidateIds, candidateType: "experienced", channel, templateId } }),
+      addToOutreachQueueFn({ data: { candidateIds, candidateType, channel, templateId } }),
     onSuccess: (result) => {
       alert(`Queued ${result.queued} candidate(s) as drafts. ${result.skipped} skipped (already queued or missing contact info).`);
       onClose();
@@ -90,7 +92,7 @@ function PipelineOutreachDialog({
         <DialogHeader>
           <DialogTitle className="text-base">Queue Pipeline for Outreach</DialogTitle>
           <DialogDescription>
-            {candidateIds.length} experienced candidate{candidateIds.length !== 1 ? "s" : ""} → outreach drafts
+            {candidateIds.length} {candidateType} candidate{candidateIds.length !== 1 ? "s" : ""} → outreach drafts
           </DialogDescription>
         </DialogHeader>
 
@@ -196,6 +198,7 @@ function PipelinesPage() {
     pipelineParam ?? pipelines[0]?.id ?? "",
   );
   const [outreachOpen, setOutreachOpen] = useState(false);
+  const [studentOutreachOpen, setStudentOutreachOpen] = useState(false);
 
   const current = pipelines.find((p) => p.id === active) ?? pipelines[0];
   const studentIds = current ? pipelineMemberIds(current.id) : [];
@@ -425,6 +428,17 @@ function PipelinesPage() {
             <span className="text-xs text-muted-foreground">
               {studentIds.length} candidate{studentIds.length !== 1 ? "s" : ""}
             </span>
+            {studentIds.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-auto h-7 gap-1.5 text-xs"
+                onClick={() => setStudentOutreachOpen(true)}
+              >
+                <Send className="h-3.5 w-3.5" />
+                Queue for Outreach
+              </Button>
+            )}
           </div>
           <div className="overflow-hidden rounded-lg border border-border">
             <table className="w-full text-sm">
@@ -516,6 +530,13 @@ function PipelinesPage() {
         open={outreachOpen}
         onClose={() => setOutreachOpen(false)}
         candidateIds={experiencedIds}
+        candidateType="experienced"
+      />
+      <PipelineOutreachDialog
+        open={studentOutreachOpen}
+        onClose={() => setStudentOutreachOpen(false)}
+        candidateIds={studentIds}
+        candidateType="student"
       />
     </div>
   );

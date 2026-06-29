@@ -402,41 +402,34 @@ async function sendViaGmail(msg: {
   });
 }
 
-async function sendViaPhantombuster(messages: {
+/**
+ * Send LinkedIn messages sequentially via Unipile.
+ * Returns per-message results so the caller can record chat_ids.
+ */
+async function sendViaUnipile(messages: {
+  id: string;
   to_linkedin_url: string;
   body: string;
-}[]): Promise<void> {
-  const apiKey  = process.env.PHANTOMBUSTER_API_KEY;
-  const agentId = process.env.PHANTOMBUSTER_LINKEDIN_AGENT_ID;
-  if (!apiKey || !agentId) {
-    throw new Error(
-      "Missing PHANTOMBUSTER_API_KEY or PHANTOMBUSTER_LINKEDIN_AGENT_ID in .env",
-    );
+}[]): Promise<{ id: string; chatId: string | null; error: string | null }[]> {
+  const { sendLinkedInMessage } = await import("@/lib/unipile.server");
+  const results: { id: string; chatId: string | null; error: string | null }[] = [];
+
+  for (const msg of messages) {
+    try {
+      const chatId = await sendLinkedInMessage(msg.to_linkedin_url, msg.body);
+      results.push({ id: msg.id, chatId, error: null });
+    } catch (err) {
+      results.push({
+        id:     msg.id,
+        chatId: null,
+        error:  err instanceof Error ? err.message : String(err),
+      });
+    }
+    // Jitter between sends to stay within LinkedIn rate limits
+    await new Promise((r) => setTimeout(r, 1200 + Math.random() * 800));
   }
 
-  // Phantombuster "LinkedIn Message Sender" argument format
-  const argument = {
-    spreadsheetUrl: undefined,
-    profilesAndMessages: messages.map((m) => ({
-      profileUrl: m.to_linkedin_url,
-      message:    m.body,
-    })),
-    numberOfMessagesPerLaunch: messages.length,
-  };
-
-  const res = await fetch("https://api.phantombuster.com/api/v2/agents/launch", {
-    method: "POST",
-    headers: {
-      "Content-Type":         "application/json",
-      "X-Phantombuster-Key":  apiKey,
-    },
-    body: JSON.stringify({ id: agentId, argument }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`Phantombuster launch failed (${res.status}): ${text}`);
-  }
+  return results;
 }
 
 export const sendApprovedBatchFn = createServerFn({ method: "POST" })
@@ -549,35 +542,39 @@ export const sendApprovedBatchFn = createServerFn({ method: "POST" })
       }
     }
 
-    // ── LinkedIn batch send via Phantombuster ─────────────────────────────────
+    // ── LinkedIn sends via Unipile (sequential, one per candidate) ───────────
     if (linkedinMsgs.length > 0) {
-      try {
-        await sendViaPhantombuster(
-          linkedinMsgs.map((m) => ({
-            to_linkedin_url: m.to_linkedin_url!,
-            body:            m.body,
-          })),
-        );
+      const unipileResults = await sendViaUnipile(
+        linkedinMsgs.map((m) => ({
+          id:              m.id,
+          to_linkedin_url: m.to_linkedin_url!,
+          body:            m.body,
+        })),
+      );
 
-        const followUpAt = new Date();
-        followUpAt.setDate(followUpAt.getDate() + FOLLOWUP_DAYS);
+      const followUpAt = new Date();
+      followUpAt.setDate(followUpAt.getDate() + FOLLOWUP_DAYS);
 
-        const ids = linkedinMsgs.map((m) => m.id);
-        await supabase.from("outreach_messages").update({
-          status:           "sent",
-          sent_at:          new Date().toISOString(),
-          next_follow_up_at: followUpAt.toISOString(),
-        }).in("id", ids);
-
-        sent += linkedinMsgs.length;
-      } catch (err) {
-        console.error("[outreach] Phantombuster batch failed:", err);
-        await supabase.from("outreach_messages").update({
-          status:        "failed",
-          error_message: err instanceof Error ? err.message : String(err),
-        }).in("id", linkedinMsgs.map((m) => m.id));
-        failed += linkedinMsgs.length;
+      for (const result of unipileResults) {
+        if (result.error) {
+          console.error(`[outreach] Unipile send failed for ${result.id}:`, result.error);
+          await supabase.from("outreach_messages").update({
+            status:        "failed",
+            error_message: result.error,
+          }).eq("id", result.id);
+          failed++;
+        } else {
+          await supabase.from("outreach_messages").update({
+            status:            "sent",
+            // Reuse gmail_thread_id to store the Unipile chat_id for webhook matching
+            gmail_thread_id:   result.chatId,
+            sent_at:           new Date().toISOString(),
+            next_follow_up_at: followUpAt.toISOString(),
+          }).eq("id", result.id);
+          sent++;
+        }
       }
+
     }
 
     return { sent, failed };
@@ -1039,3 +1036,96 @@ export const importCsvToOutreachFn = createServerFn({ method: "POST" })
       dbSaved: savedCandidateIds.length,
     };
   });
+
+// ---------------------------------------------------------------------------
+// 11. Unipile — send LinkedIn message directly from a candidate card
+// ---------------------------------------------------------------------------
+
+export const sendLinkedInMessageFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      candidateId:      z.string().uuid(),
+      candidateType:    z.enum(["student", "experienced"]),
+      linkedinUrl:      z.string().url(),
+      message:          z.string().min(1).max(8000),
+      campaignId:       z.string().uuid().optional(),
+      candidateName:    z.string().optional(),
+      candidateTitle:   z.string().optional(),
+      candidateCompany: z.string().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { sendLinkedInMessage } = await import("@/lib/unipile.server");
+    const supabase = getSupabaseAdmin();
+
+    const chatId = await sendLinkedInMessage(data.linkedinUrl, data.message);
+
+    const followUpAt = new Date();
+    followUpAt.setDate(followUpAt.getDate() + FOLLOWUP_DAYS);
+
+    const { error } = await supabase.from("outreach_messages").insert({
+      candidate_id:      data.candidateId,
+      candidate_type:    data.candidateType,
+      campaign_id:       data.campaignId ?? null,
+      channel:           "linkedin",
+      status:            "sent",
+      body:              data.message,
+      to_linkedin_url:   data.linkedinUrl,
+      // Store Unipile chat_id here so the webhook can match replies
+      gmail_thread_id:   chatId,
+      candidate_name:    data.candidateName ?? null,
+      candidate_title:   data.candidateTitle ?? null,
+      candidate_company: data.candidateCompany ?? null,
+      sent_at:           new Date().toISOString(),
+      follow_up_number:  0,
+      is_followup:       false,
+      next_follow_up_at: followUpAt.toISOString(),
+    });
+    if (error) throw new Error(`Message sent but failed to record: ${error.message}`);
+
+    return { ok: true, chatId };
+  });
+
+// ---------------------------------------------------------------------------
+// 12. Unipile — send LinkedIn connection request from a candidate card
+// ---------------------------------------------------------------------------
+
+export const sendLinkedInConnectionFn = createServerFn({ method: "POST" })
+  .validator(
+    z.object({
+      candidateId:      z.string().uuid(),
+      candidateType:    z.enum(["student", "experienced"]),
+      linkedinUrl:      z.string().url(),
+      note:             z.string().max(300).optional(),
+      campaignId:       z.string().uuid().optional(),
+      candidateName:    z.string().optional(),
+      candidateTitle:   z.string().optional(),
+      candidateCompany: z.string().optional(),
+    }),
+  )
+  .handler(async ({ data }) => {
+    const { sendLinkedInInvitation } = await import("@/lib/unipile.server");
+    const supabase = getSupabaseAdmin();
+
+    await sendLinkedInInvitation(data.linkedinUrl, data.note);
+
+    const { error } = await supabase.from("outreach_messages").insert({
+      candidate_id:      data.candidateId,
+      candidate_type:    data.candidateType,
+      campaign_id:       data.campaignId ?? null,
+      channel:           "linkedin",
+      status:            "sent",
+      body:              data.note ?? "(connection request — no note)",
+      to_linkedin_url:   data.linkedinUrl,
+      candidate_name:    data.candidateName ?? null,
+      candidate_title:   data.candidateTitle ?? null,
+      candidate_company: data.candidateCompany ?? null,
+      sent_at:           new Date().toISOString(),
+      follow_up_number:  0,
+      is_followup:       false,
+    });
+    if (error) throw new Error(`Invitation sent but failed to record: ${error.message}`);
+
+    return { ok: true };
+  });
+

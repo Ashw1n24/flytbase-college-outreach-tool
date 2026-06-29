@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, Plus, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, Plus, X, RefreshCw } from "lucide-react";
 import { TopNav } from "@/components/talent/TopNav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,8 +11,9 @@ import {
   getTargetCompaniesFn,
   addTargetCompanyFn,
   setTargetCompanyActiveFn,
-  updateTargetCompanyFn,
+  replaceCuratedCompaniesFn,
 } from "@/lib/api/experienced.functions";
+import { ALL_TAGS } from "@/data/target-companies";
 
 export const Route = createFileRoute("/experienced/companies")({
   head: () => ({
@@ -22,44 +23,64 @@ export const Route = createFileRoute("/experienced/companies")({
 });
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Tag colour map — one colour per semantic group
 // ---------------------------------------------------------------------------
 
-function extractOneSentenceDescription(markdown: string): string {
-  const text = markdown
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/[#*`>_~\-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+const TAG_COLORS: Record<string, string> = {
+  // Domain
+  drone:                "bg-sky-900/50 text-sky-300 border-sky-700/50",
+  aerospace:            "bg-indigo-900/50 text-indigo-300 border-indigo-700/50",
+  "defense-adjacent":   "bg-red-900/40 text-red-300 border-red-700/50",
+  robotics:             "bg-violet-900/50 text-violet-300 border-violet-700/50",
+  "autonomous-vehicles":"bg-purple-900/50 text-purple-300 border-purple-700/50",
+  "embedded-systems":   "bg-cyan-900/50 text-cyan-300 border-cyan-700/50",
+  "industrial-automation":"bg-orange-900/40 text-orange-300 border-orange-700/50",
+  deeptech:             "bg-fuchsia-900/50 text-fuchsia-300 border-fuchsia-700/50",
+  // Commercial
+  "b2b-enterprise":     "bg-emerald-900/50 text-emerald-300 border-emerald-700/50",
+  "global-clientele":   "bg-teal-900/50 text-teal-300 border-teal-700/50",
+  "india-origin-global":"bg-green-900/50 text-green-300 border-green-700/50",
+  "mission-critical":   "bg-amber-900/40 text-amber-300 border-amber-700/50",
+  // Culture / size
+  startup:              "bg-pink-900/40 text-pink-300 border-pink-700/50",
+  "high-agency":        "bg-rose-900/40 text-rose-300 border-rose-700/50",
+  "fast-growth":        "bg-lime-900/40 text-lime-300 border-lime-700/50",
+  large:                "bg-zinc-700/60 text-zinc-300 border-zinc-600/50",
+  "mid-size":           "bg-zinc-800/60 text-zinc-400 border-zinc-700/50",
+};
 
-  const sentences = text
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 20);
-
-  for (const sentence of sentences) {
-    const lower = sentence.toLowerCase();
-    if (
-      lower.includes("company") ||
-      lower.includes("business") ||
-      lower.includes("platform") ||
-      lower.includes("build") ||
-      lower.includes("provide") ||
-      lower.includes("software") ||
-      lower.includes("service")
-    ) {
-      return sentence;
-    }
-  }
-
-  return sentences[0] || "";
+function TagChip({ tag, onRemove, onClick, selected }: {
+  tag: string;
+  onRemove?: () => void;
+  onClick?: () => void;
+  selected?: boolean;
+}) {
+  const base = TAG_COLORS[tag] ?? "bg-accent text-accent-foreground border-border";
+  return (
+    <span
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none",
+        base,
+        onClick && "cursor-pointer hover:opacity-80",
+        selected && "ring-1 ring-white/40",
+      )}
+    >
+      {tag}
+      {onRemove && (
+        <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="hover:text-white ml-0.5">
+          <X className="h-2.5 w-2.5" />
+        </button>
+      )}
+    </span>
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Add company form
 // ---------------------------------------------------------------------------
 
-const EMPTY_FORM = { name: "", linkedin_url: "", industry: "", why_similar: "" };
+const EMPTY_FORM = { name: "", linkedin_url: "", industry: "", why_similar: "", tags: [] as string[] };
 
 function AddCompanyForm({ onDone }: { onDone: () => void }) {
   const queryClient = useQueryClient();
@@ -71,12 +92,19 @@ function AddCompanyForm({ onDone }: { onDone: () => void }) {
       linkedin_url: form.linkedin_url.trim(),
       industry:     form.industry.trim() || undefined,
       why_similar:  form.why_similar.trim() || undefined,
+      tags:         form.tags,
     }}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["target-companies"] });
       onDone();
     },
   });
+
+  const toggleTag = (tag: string) =>
+    setForm((f) => ({
+      ...f,
+      tags: f.tags.includes(tag) ? f.tags.filter((t) => t !== tag) : [...f.tags, tag],
+    }));
 
   const canSubmit = form.name.trim() && form.linkedin_url.trim();
 
@@ -95,7 +123,7 @@ function AddCompanyForm({ onDone }: { onDone: () => void }) {
           <Input
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            placeholder="e.g. FlytBase"
+            placeholder="e.g. Quest Global"
             className="h-8 text-xs"
           />
         </div>
@@ -113,18 +141,29 @@ function AddCompanyForm({ onDone }: { onDone: () => void }) {
           <Input
             value={form.industry}
             onChange={(e) => setForm((f) => ({ ...f, industry: e.target.value }))}
-            placeholder="e.g. Drone Software"
+            placeholder="e.g. Engineering Services"
             className="h-8 text-xs"
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Why Similar</Label>
+          <Label className="text-xs">Description</Label>
           <Input
             value={form.why_similar}
             onChange={(e) => setForm((f) => ({ ...f, why_similar: e.target.value }))}
-            placeholder="e.g. B2B SaaS India"
+            placeholder="Why is this a target company?"
             className="h-8 text-xs"
           />
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <Label className="text-xs mb-1.5 block">Tags</Label>
+        <div className="flex flex-wrap gap-1.5">
+          {ALL_TAGS.map((tag) => (
+            <button key={tag} onClick={() => toggleTag(tag)}>
+              <TagChip tag={tag} selected={form.tags.includes(tag)} />
+            </button>
+          ))}
         </div>
       </div>
 
@@ -155,8 +194,8 @@ function TargetCompanies() {
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
   const [showInactive, setShowInactive] = useState(false);
-  const [enriching, setEnriching] = useState(false);
-  const [enrichStatus, setEnrichStatus] = useState<string | null>(null);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [confirmReplace, setConfirmReplace] = useState(false);
 
   const { data: companies, isLoading, error } = useQuery({
     queryKey: ["target-companies"],
@@ -168,11 +207,28 @@ function TargetCompanies() {
       setTargetCompanyActiveFn({ data: vars }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["target-companies"] }),
   });
+
+  const { mutate: loadCurated, isPending: loadingCurated, error: curatedError } = useMutation({
+    mutationFn: () => replaceCuratedCompaniesFn(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["target-companies"] });
+      setConfirmReplace(false);
+    },
+  });
+
+  const toggleTagFilter = (tag: string) =>
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
+    );
+
   const filtered = (companies ?? []).filter((c) => {
     if (!showInactive && !c.is_active) return false;
-
+    if (selectedTags.length > 0) {
+      const cTags = c.tags ?? [];
+      if (!selectedTags.every((t) => cTags.includes(t))) return false;
+    }
     if (search) {
-      const hay = [c.name, c.industry, c.why_similar].filter(Boolean).join(" ").toLowerCase();
+      const hay = [c.name, c.industry, c.why_similar, ...(c.tags ?? [])].filter(Boolean).join(" ").toLowerCase();
       if (!hay.includes(search.toLowerCase())) return false;
     }
     return true;
@@ -180,95 +236,25 @@ function TargetCompanies() {
 
   const activeCount = (companies ?? []).filter((c) => c.is_active).length;
 
-  const GENERIC_TEXTS = new Set([
-    "b2b saas india",
-    "saas",
-    "tech",
-    "software",
-    "education",
-    "it services",
-    "internet",
-    "" ,
-  ]);
-
-  const isGenericWhySimilar = (value: string | null | undefined) => {
-    if (!value) return true;
-    return GENERIC_TEXTS.has(value.trim().toLowerCase());
-  };
-
-  const homepageUrl = (url: string) => {
-    try {
-      const u = new URL(url);
-      return `${u.protocol}//${u.hostname}/`;
-    } catch {
-      return url;
+  // Count companies per tag (for active companies only)
+  const tagCounts = new Map<string, number>();
+  for (const c of (companies ?? []).filter((x) => x.is_active)) {
+    for (const t of c.tags ?? []) {
+      tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
     }
-  };
-
-  const enrichTargetCompanies = async () => {
-    const candidates = (companies ?? []).filter((c) => {
-      if (!c.linkedin_url) return false;
-      return isGenericWhySimilar(c.why_similar);
-    });
-
-    if (!candidates.length) {
-      setEnrichStatus("No eligible companies to enrich.");
-      return;
-    }
-    const limit = Math.min(candidates.length, 50);
-    const run = candidates.slice(0, limit);
-    setEnriching(true);
-    setEnrichStatus(`Enriching 0/${run.length}…`);
-    let done = 0;
-    let failed = 0;
-
-    for (const company of run) {
-      try {
-        const page = await fetch("/api/firecrawl/+server", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ url: homepageUrl(company.linkedin_url) }),
-        });
-        const data = await page.json();
-        if (!page.ok || data?.success === false) {
-          throw new Error(data?.error || `HTTP ${page.status}`);
-        }
-        const markdown = (data?.markdown as string) || "";
-        const description = extractOneSentenceDescription(markdown).trim();
-        if (!description) {
-          failed++;
-        } else {
-          await updateTargetCompanyFn({
-            data: { id: company.id, updates: { why_similar: description } },
-          });
-        }
-      } catch (err) {
-        console.error(`[enrich] ${company.name}`, err);
-        failed++;
-      } finally {
-        done += 1;
-        setEnrichStatus(`Enriched ${done}/${run.length}${failed ? ` (${failed} failed)` : ""}…`);
-      }
-    }
-
-    setEnriching(false);
-    setEnrichStatus(
-      `Done. Updated ${run.length - failed} of ${run.length} shown companies.${failed ? ` ${failed} skipped.` : ""}`,
-    );
-    void queryClient.invalidateQueries({ queryKey: ["target-companies"] });
-  };
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <TopNav health="fail" hideCompetitions />
 
-      <div className="max-w-5xl mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto px-6 py-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-lg font-semibold tracking-tight">Target Companies</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {activeCount} active {activeCount === 1 ? "company" : "companies"} used to filter candidate searches.
+              {activeCount} active {activeCount === 1 ? "company" : "companies"} · {filtered.length} shown
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -282,41 +268,93 @@ function TargetCompanies() {
               <Plus className="h-3.5 w-3.5" />
               Add Company
             </Button>
+            {!confirmReplace ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs text-amber-400 border-amber-700/50 hover:bg-amber-900/20"
+                onClick={() => setConfirmReplace(true)}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Load Curated List
+              </Button>
+            ) : (
+              <div className="flex items-center gap-2 rounded-md border border-amber-700/50 bg-amber-900/20 px-3 py-1.5">
+                <span className="text-xs text-amber-300">Replace all companies?</span>
+                <Button
+                  size="sm"
+                  className="h-6 px-2 text-xs bg-amber-600 hover:bg-amber-500 text-white"
+                  onClick={() => loadCurated()}
+                  disabled={loadingCurated}
+                >
+                  {loadingCurated ? "Loading…" : "Confirm"}
+                </Button>
+                <button
+                  onClick={() => setConfirmReplace(false)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
             <Link to="/experienced">
               <Button variant="outline" size="sm" className="gap-1.5">
                 <ArrowLeft className="h-3.5 w-3.5" />
-                All Campaigns
+                Campaigns
               </Button>
             </Link>
           </div>
         </div>
 
+        {curatedError && (
+          <p className="text-xs text-destructive mb-3">
+            {curatedError instanceof Error ? curatedError.message : "Failed to load curated list."}
+          </p>
+        )}
+
         {/* Add form */}
         {showForm && <AddCompanyForm onDone={() => setShowForm(false)} />}
 
-        {/* Enrichment */}
-        <div className="flex items-center gap-3 mb-4">
-          <Button
-            variant="secondary"
-            size="sm"
-            className="gap-1.5 text-xs"
-            onClick={enrichTargetCompanies}
-            disabled={enriching}
-          >
-            Enrich Descriptions
-          </Button>
-          {enrichStatus && (
-            <span className="text-xs text-muted-foreground">{enrichStatus}</span>
-          )}
+        {/* Tag filter */}
+        <div className="mb-4">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-2">
+            Filter by tag {selectedTags.length > 0 && `· ${selectedTags.length} active`}
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {ALL_TAGS.map((tag) => {
+              const count = tagCounts.get(tag) ?? 0;
+              if (count === 0) return null;
+              return (
+                <button key={tag} onClick={() => toggleTagFilter(tag)}>
+                  <span className={cn(
+                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none transition-opacity",
+                    TAG_COLORS[tag] ?? "bg-accent text-accent-foreground border-border",
+                    selectedTags.includes(tag) ? "ring-1 ring-white/50 opacity-100" : "opacity-60 hover:opacity-90",
+                  )}>
+                    {tag}
+                    <span className="opacity-70">·{count}</span>
+                  </span>
+                </button>
+              );
+            })}
+            {selectedTags.length > 0 && (
+              <button
+                onClick={() => setSelectedTags([])}
+                className="text-xs text-muted-foreground hover:text-foreground px-2"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Filter bar */}
+        {/* Search + inactive toggle */}
         <div className="flex items-center gap-2 mb-4">
           <Input
             placeholder="Search name, industry, tag…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-8 text-xs w-60"
+            className="h-8 text-xs w-64"
           />
           <button
             onClick={() => setShowInactive((v) => !v)}
@@ -339,13 +377,6 @@ function TargetCompanies() {
           )}
         </div>
 
-        {/* Count */}
-        {!isLoading && !error && (
-          <p className="text-xs text-muted-foreground mb-3">
-            {filtered.length} {filtered.length === 1 ? "company" : "companies"}
-          </p>
-        )}
-
         {/* States */}
         {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
         {error && (
@@ -360,12 +391,12 @@ function TargetCompanies() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">
-                  <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Company</th>
-                  <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Industry</th>
-                  <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Why Similar</th>
-                  <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">LinkedIn</th>
-                  <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Status</th>
-                  <th className="px-4 py-2.5" />
+                  <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground w-44">Company</th>
+                  <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Tags</th>
+                  <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground w-64 hidden xl:table-cell">Description</th>
+                  <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground w-16">Link</th>
+                  <th className="px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground w-20">Status</th>
+                  <th className="px-4 py-2.5 w-20" />
                 </tr>
               </thead>
               <tbody>
@@ -381,17 +412,26 @@ function TargetCompanies() {
                     key={c.id}
                     className={cn(
                       "border-b border-border last:border-0",
-                      !c.is_active && "opacity-50",
-                      i % 2 === 0 ? "bg-background" : "bg-muted/20",
+                      !c.is_active && "opacity-40",
+                      i % 2 === 0 ? "bg-background" : "bg-muted/10",
                     )}
                   >
-                    <td className="px-4 py-2.5 font-medium text-xs">{c.name}</td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{c.industry ?? "—"}</td>
                     <td className="px-4 py-2.5">
+                      <div className="font-medium text-xs">{c.name}</div>
+                      {c.industry && (
+                        <div className="text-[11px] text-muted-foreground mt-0.5">{c.industry}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-wrap gap-1">
+                        {(c.tags ?? []).map((tag) => (
+                          <TagChip key={tag} tag={tag} />
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 hidden xl:table-cell">
                       {c.why_similar ? (
-                        <span className="inline-flex items-center rounded-full bg-accent px-2 py-0.5 text-[11px] text-accent-foreground">
-                          {c.why_similar}
-                        </span>
+                        <span className="text-xs text-muted-foreground line-clamp-2">{c.why_similar}</span>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
                       )}

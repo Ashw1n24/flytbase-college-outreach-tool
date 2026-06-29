@@ -6,7 +6,7 @@ import type {
 import type { RoleFitLabel } from "@/lib/utils/rolefit";
 import type { CultureTier } from "@/lib/utils/culturefit";
 
-export type SortField = "name" | "graduation_year" | "competition_count" | "culture_score" | "email";
+export type SortField = "name" | "graduation_year" | "competition_count" | "culture_score" | "created_at";
 export type SortDirection = "asc" | "desc";
 
 export interface SearchParams {
@@ -16,6 +16,7 @@ export interface SearchParams {
   grad_year_max?: number;
   degrees?: string[];
   branches?: string[];
+  has_email?: boolean;
   has_competition?: boolean;
   competition_categories?: CompetitionCategory[];
   competition_names?: string[];

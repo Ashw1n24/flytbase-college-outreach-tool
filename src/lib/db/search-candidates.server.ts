@@ -181,6 +181,10 @@ function applyStandardFilters(query: CandidatesQuery, params: SearchParams) {
     q = q.in("source", params.sources);
   }
 
+  if (params.has_email) {
+    q = q.not("email", "is", null);
+  }
+
   return q;
 }
 
@@ -331,6 +335,8 @@ export async function searchCandidates(
   } else if (sortBy === "culture_score") {
     // DB column — sort natively so cross-page ordering is correct.
     query = query.order("culture_score", { ascending: sortDir === "asc", nullsFirst: false });
+  } else if (sortBy === "created_at") {
+    query = query.order("created_at", { ascending: sortDir === "asc" });
   } else if (sortBy === "competition_count") {
     // Computed in-memory; pre-sort by grad year for a stable within-page order.
     query = query.order("graduation_year", { ascending: false, nullsFirst: true });

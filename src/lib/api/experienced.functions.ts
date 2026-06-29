@@ -203,7 +203,7 @@ async function fetchAllCampaigns() {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("campaigns")
-    .select("id, name, status, candidate_count, created_at")
+    .select("id, name, status, candidate_count, created_at, type")
     .order("created_at", { ascending: false });
   if (error) throw new Error(`Failed to fetch campaigns: ${error.message}`);
 
@@ -1256,10 +1256,10 @@ export const getTargetCompaniesFn = createServerFn({ method: "GET" })
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
       .from("target_companies")
-      .select("id, name, linkedin_url, industry, size, why_similar, is_active, created_at")
-      .order("created_at", { ascending: false });
+      .select("id, name, linkedin_url, industry, size, why_similar, tags, is_active, created_at")
+      .order("name", { ascending: true });
     if (error) throw new Error(`Failed to fetch target companies: ${error.message}`);
-    return data ?? [];
+    return (data ?? []).map((c) => ({ ...c, tags: c.tags ?? [] }));
   });
 
 export const addTargetCompanyFn = createServerFn({ method: "POST" })
@@ -1268,6 +1268,7 @@ export const addTargetCompanyFn = createServerFn({ method: "POST" })
     linkedin_url: z.string().min(1),
     industry:     z.string().optional(),
     why_similar:  z.string().optional(),
+    tags:         z.array(z.string()).default([]),
   }))
   .handler(async ({ data }) => {
     const supabase = getSupabaseAdmin();
@@ -1296,6 +1297,8 @@ export const updateTargetCompanyFn = createServerFn({ method: "POST" })
       id: z.string().min(1),
       updates: z.object({
         why_similar: z.string().optional().nullable(),
+        tags:        z.array(z.string()).optional(),
+        industry:    z.string().optional().nullable(),
       }),
     }),
   )
@@ -1307,6 +1310,36 @@ export const updateTargetCompanyFn = createServerFn({ method: "POST" })
       .eq("id", data.id);
     if (error) throw new Error(`Failed to update company: ${error.message}`);
     return { ok: true };
+  });
+
+// ---------------------------------------------------------------------------
+// Replace target companies with curated list
+// ---------------------------------------------------------------------------
+
+export const replaceCuratedCompaniesFn = createServerFn({ method: "POST" })
+  .handler(async () => {
+    // Inline import — server-side only; avoids bundling the data into the client
+    const { CURATED_COMPANIES } = await import("@/data/target-companies");
+    const supabase = getSupabaseAdmin();
+
+    // Delete all existing target companies
+    const { error: delErr } = await supabase
+      .from("target_companies")
+      .delete()
+      .neq("id", "00000000-0000-0000-0000-000000000000"); // delete all
+    if (delErr) throw new Error(`Failed to clear companies: ${delErr.message}`);
+
+    // Insert curated list in chunks
+    const rows = CURATED_COMPANIES.map((c) => ({ ...c, is_active: true }));
+    const CHUNK = 50;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const { error: insErr } = await supabase
+        .from("target_companies")
+        .insert(rows.slice(i, i + CHUNK));
+      if (insErr) throw new Error(`Failed to insert companies (offset ${i}): ${insErr.message}`);
+    }
+
+    return { inserted: rows.length };
   });
 
 // ---------------------------------------------------------------------------
@@ -1324,3 +1357,417 @@ export const archiveExpCandidateFn = createServerFn({ method: "POST" })
     if (error) throw new Error(`Failed to archive candidates: ${error.message}`);
     return { ok: true };
   });
+
+// ---------------------------------------------------------------------------
+// Company-targeted campaign: create
+// ---------------------------------------------------------------------------
+
+const parseCompanyCampaignInputSchema = z.object({
+  name: z.string().min(1),
+  jdText: z.string().default(""),
+  roles: z.array(z.string()).default([]),
+  target_company_ids: z.array(z.string()).default([]),
+  target_tags: z.array(z.string()).default([]),
+  filters: campaignFiltersSchema,
+});
+
+export const parseCompanyCampaignFn = createServerFn({ method: "POST" })
+  .validator(parseCompanyCampaignInputSchema)
+  .handler(async ({ data }) => {
+    let jdParsed: JdParsed;
+    let jdText = data.jdText ?? "";
+
+    if (jdText.trim()) {
+      jdParsed = await parseJdWithClaude(jdText);
+    } else if (data.roles.length > 0) {
+      jdText = `Roles: ${data.roles.join(", ")}`;
+      jdParsed = {
+        required_skills: data.roles,
+        nice_to_have: [],
+        titles: data.roles,
+        industries: [],
+        seniority: ["senior"],
+        min_experience: data.filters.exp_min || 3,
+        function: data.roles[0] || "professional",
+        seniority_label: "senior",
+        top_skills: data.roles.slice(0, 3),
+      };
+    } else {
+      throw new Error("Either a JD or at least one role title is required.");
+    }
+
+    const mergedFilters = mergeFilters(jdParsed, data.filters);
+    const supabase = getSupabaseAdmin();
+    const { data: campaign, error } = await supabase
+      .from("campaigns")
+      .insert({
+        name: data.name,
+        jd_raw: jdText,
+        jd_parsed: jdParsed as unknown as Json,
+        filters: mergedFilters as unknown as Json,
+        status: "pending",
+        type: "company_targeted",
+        target_company_ids: data.target_company_ids,
+        target_tags: data.target_tags,
+      })
+      .select("id")
+      .single();
+    if (error) throw new Error(`Failed to create company campaign: ${error.message}`);
+    return { campaignId: campaign.id };
+  });
+
+// ---------------------------------------------------------------------------
+// Company-targeted campaign: search
+// ---------------------------------------------------------------------------
+
+async function searchViaCompanies(
+  token: string,
+  companies: Array<{ id: string; name: string }>,
+  jdParsed: JdParsed,
+): Promise<ApifyPerson[]> {
+  const titles = [...new Set((jdParsed.titles ?? []).filter((t) => t.length > 2))].slice(0, 6);
+  if (titles.length === 0 && jdParsed.function) titles.push(jdParsed.function);
+
+  // Cap at 30 companies; decide title variants per company based on count
+  const cappedCompanies = companies.slice(0, 30);
+  const titlesPerCompany =
+    cappedCompanies.length <= 10 ? Math.min(3, titles.length) :
+    cappedCompanies.length <= 20 ? Math.min(2, titles.length) : 1;
+  const titleSubset = titles.slice(0, Math.max(1, titlesPerCompany));
+
+  const queryList: string[] = [];
+  for (const company of cappedCompanies) {
+    for (const title of titleSubset) {
+      queryList.push(`site:linkedin.com/in "${company.name}" "${title}" India -inurl:company`);
+    }
+  }
+  const queries = queryList.slice(0, 30).join("\n");
+
+  console.log(
+    `[Company Search] ${cappedCompanies.length} companies × ${titleSubset.length} titles = ${queryList.length} queries`,
+  );
+
+  const body = { queries, maxPagesPerQuery: 2, countryCode: "in", languageCode: "en" };
+
+  const runRes = await fetch(
+    `${APIFY_BASE}/acts/apify~google-search-scraper/runs?token=${token}&timeoutSecs=180`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+  if (!runRes.ok) {
+    const text = await runRes.text().catch(() => runRes.statusText);
+    throw new Error(`Company Search Scraper start failed ${runRes.status}: ${text}`);
+  }
+  const runResp = await runRes.json() as { data?: { id?: string } };
+  const runId = runResp?.data?.id;
+  if (!runId) throw new Error("Google Search Scraper did not return a run ID.");
+  console.log("[Company Search] run started:", runId);
+
+  // Poll up to 3.5 minutes
+  const deadline = Date.now() + 3.5 * 60 * 1000;
+  let status: string | undefined = "READY";
+  while (status === "READY" || status === "RUNNING") {
+    if (Date.now() >= deadline) {
+      console.warn("[Company Search] timeout — fetching partial results");
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 5_000));
+    const sr = await fetch(`${APIFY_BASE}/actor-runs/${runId}?token=${token}`);
+    const sd = await sr.json() as { data?: { status?: string } };
+    status = sd?.data?.status;
+    console.log("[Company Search poll]", status);
+  }
+
+  const datasetRes = await fetch(
+    `${APIFY_BASE}/actor-runs/${runId}/dataset/items?token=${token}&limit=2000`,
+  );
+  if (!datasetRes.ok) {
+    const text = await datasetRes.text().catch(() => datasetRes.statusText);
+    throw new Error(`Company dataset fetch failed ${datasetRes.status}: ${text}`);
+  }
+  const rawItems = await datasetRes.json() as GoogleSearchDatasetItem[];
+  const items: GoogleSearchDatasetItem[] = Array.isArray(rawItems) ? rawItems : [];
+  console.log(`[Company Search] ${items.length} SERP pages returned`);
+
+  const seen = new Set<string>();
+  const people: ApifyPerson[] = [];
+
+  for (const item of items) {
+    for (const result of item.organicResults ?? []) {
+      const url = result.url ?? "";
+      if (!url.includes("linkedin.com/in/")) continue;
+      if (seen.has(url)) continue;
+      seen.add(url);
+
+      const title = result.title ?? "";
+      const snippet = result.description ?? "";
+      if (!title) continue;
+
+      const parsed = parseLinkedInGoogleResult(title, snippet);
+      if (!parsed.fullName) continue;
+
+      const inMatch = url.match(/linkedin\.com\/in\/([^/?#]+)/);
+      const publicIdentifier = inMatch?.[1] ?? undefined;
+
+      people.push({
+        publicIdentifier,
+        linkedinUrl: url,
+        fullName: parsed.fullName,
+        currentTitle: parsed.currentTitle ?? undefined,
+        company: parsed.currentCompany ?? undefined,
+        locationText: parsed.locationText ?? undefined,
+        headline: snippet.slice(0, 300) || undefined,
+      });
+    }
+  }
+
+  console.log(`[Company Search] ${people.length} LinkedIn profiles extracted`);
+  return people;
+}
+
+async function runCompanySearch(
+  campaignId: string,
+): Promise<{ candidateCount: number; companyCount: number }> {
+  const supabase = getSupabaseAdmin();
+  const campaign = await fetchCampaign(campaignId);
+  const jdParsed = campaign.jd_parsed as unknown as JdParsed;
+
+  // Resolve target companies (by explicit IDs, by tags, or both)
+  const targetIds = (campaign.target_company_ids ?? []) as string[];
+  const targetTags = (campaign.target_tags ?? []) as string[];
+
+  const companySet = new Map<string, { id: string; name: string }>();
+
+  if (targetIds.length > 0) {
+    const { data } = await supabase
+      .from("target_companies")
+      .select("id, name")
+      .in("id", targetIds)
+      .eq("is_active", true);
+    for (const c of data ?? []) companySet.set(c.id, { id: c.id, name: c.name });
+  }
+
+  if (targetTags.length > 0) {
+    const { data } = await supabase
+      .from("target_companies")
+      .select("id, name")
+      .overlaps("tags", targetTags)
+      .eq("is_active", true);
+    for (const c of data ?? []) companySet.set(c.id, { id: c.id, name: c.name });
+  }
+
+  const companies = [...companySet.values()];
+  console.log(`[Company Search] ${companies.length} target companies to search`);
+
+  if (companies.length === 0) {
+    await supabase.from("campaigns").update({ status: "error" }).eq("id", campaignId);
+    throw new Error("No active target companies found for this campaign. Check your company/tag selection.");
+  }
+
+  await supabase.from("campaigns").update({ status: "searching" }).eq("id", campaignId);
+
+  try {
+    const apifyKey = process.env.APIFY_API_KEY ?? process.env.APIFY_TOKEN;
+    if (!apifyKey) throw new Error("Missing APIFY_API_KEY in environment. Add it to .env");
+
+    const people = await searchViaCompanies(apifyKey, companies, jdParsed);
+
+    await supabase.from("campaigns").update({ status: "scoring" }).eq("id", campaignId);
+
+    const personResults = people.filter((p) => !!(p.fullName || p.linkedinUrl));
+
+    const seenKeys = new Set<string>();
+    const uniquePeople = personResults.filter((p) => {
+      const key = p.publicIdentifier ?? p.linkedinUrl;
+      if (!key || seenKeys.has(key)) return false;
+      seenKeys.add(key);
+      return true;
+    });
+    console.log(`[Company Search dedup] ${uniquePeople.length}/${personResults.length} unique`);
+
+    const scoredPeople = await scoreCandidates(uniquePeople, jdParsed);
+    const relevantPeople = scoredPeople.filter((p) => p.jd_fit_tier !== "irrelevant");
+    console.log(`[Company Search scoring] ${relevantPeople.length}/${uniquePeople.length} kept`);
+
+    // Cross-campaign dedup
+    const { data: existingRows } = await supabase
+      .from("experienced_candidates")
+      .select("linkedin_url")
+      .not("linkedin_url", "is", null)
+      .neq("campaign_id", campaignId);
+    const existingUrls = new Set((existingRows ?? []).map((r) => r.linkedin_url as string));
+
+    const COMPANY_WORDS = /\b(pvt|ltd|limited|llp|inc|corp|corporation)\b/i;
+    const NON_INDIA_GEO =
+      /\b(usa|united states|u\.s\.a|new york|san francisco|seattle|boston|austin|chicago|los angeles|uk|united kingdom|london|manchester|singapore|dubai|uae|abu dhabi|canada|toronto|vancouver|australia|sydney|melbourne|germany|netherlands|france|europe)\b/i;
+
+    const validPeople = relevantPeople.filter((p) => {
+      const fullName: string = p.fullName ?? "";
+      if (!fullName) return false;
+      if (COMPANY_WORDS.test(fullName)) return false;
+      const linkedinUrl: string | null = p.linkedinUrl ?? p.url ?? null;
+      if (linkedinUrl && existingUrls.has(linkedinUrl)) return false;
+      const geoText = `${p.locationText ?? ""} ${p.headline ?? ""}`;
+      if (NON_INDIA_GEO.test(geoText)) return false;
+      return true;
+    });
+    console.log(`[Company Search valid] ${validPeople.length} after dedup+geo filter`);
+
+    await supabase.from("campaigns").update({ status: "saving" }).eq("id", campaignId);
+
+    type CompanyEntry = { apollo_org_id: string; company_name: string; count: number };
+    const companyResultMap = new Map<string, CompanyEntry>();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const candidateRows = validPeople.map((p: any) => {
+      const locText: string = p.locationText ?? "";
+      const locParts = locText.split(",").map((s: string) => s.trim());
+      const companyName: string | null = p.company ?? p.currentCompany ?? null;
+      if (companyName) {
+        const orgId = companyName.toLowerCase().replace(/\s+/g, "-");
+        const existing = companyResultMap.get(orgId);
+        if (existing) existing.count++;
+        else companyResultMap.set(orgId, { apollo_org_id: orgId, company_name: companyName, count: 1 });
+      }
+      return {
+        campaign_id: campaignId,
+        apollo_id: p.publicIdentifier ?? p.linkedinUrl ?? p.url,
+        full_name: p.fullName || null,
+        current_title: p.currentTitle ?? p.jobTitle ?? p.headline ?? null,
+        current_company: companyName,
+        current_department: null,
+        linkedin_url: p.linkedinUrl ?? p.url ?? null,
+        email: (p as unknown as { email?: string | null }).email ?? null,
+        phone: null,
+        location_city: locParts[0] || null,
+        location_state: locParts[1] || null,
+        location_country: locParts[2] || locParts[1] || null,
+        years_experience: null,
+        previous_companies: [],
+        skills: [],
+        employment_status: null,
+        fit_tier: p.jd_fit_tier,
+        fit_score: p.jd_fit_score,
+        required_match: false,
+        nice_to_have_count: 0,
+        apollo_raw: {
+          _fit_reason: p.jd_fit_reason ?? null,
+          locationText: p.locationText ?? null,
+          searchSnippet: p.headline ?? null,
+        },
+      };
+    });
+
+    // Merge strategy: update existing, insert new (same as runApifySearch)
+    const { data: existingForCampaign } = await supabase
+      .from("experienced_candidates")
+      .select("id, linkedin_url, apollo_id")
+      .eq("campaign_id", campaignId);
+
+    const existingByLinkedIn = new Map<string, string>(
+      (existingForCampaign ?? [])
+        .filter((c) => c.linkedin_url)
+        .map((c) => [c.linkedin_url as string, c.id as string]),
+    );
+    const existingByApolloId = new Map<string, string>(
+      (existingForCampaign ?? [])
+        .filter((c) => c.apollo_id)
+        .map((c) => [c.apollo_id as string, c.id as string]),
+    );
+
+    type CandidateUpdate = {
+      id: string;
+      fit_tier: string;
+      fit_score: number;
+      current_title: string | null;
+      current_company: string | null;
+      apollo_raw: object;
+    };
+
+    const rowsToInsert: typeof candidateRows = [];
+    const rowsToUpdate: CandidateUpdate[] = [];
+
+    for (const row of candidateRows) {
+      const existingId =
+        (row.linkedin_url && existingByLinkedIn.get(row.linkedin_url)) ||
+        (row.apollo_id && existingByApolloId.get(row.apollo_id)) ||
+        null;
+
+      if (existingId) {
+        rowsToUpdate.push({
+          id: existingId,
+          fit_tier: row.fit_tier,
+          fit_score: row.fit_score,
+          current_title: row.current_title,
+          current_company: row.current_company,
+          apollo_raw: row.apollo_raw,
+        });
+      } else {
+        rowsToInsert.push(row);
+      }
+    }
+
+    console.log(`[Company Search save] ${rowsToInsert.length} new, ${rowsToUpdate.length} re-scored`);
+
+    if (rowsToInsert.length > 0) {
+      const CHUNK = 50;
+      for (let start = 0; start < rowsToInsert.length; start += CHUNK) {
+        const { error: candErr } = await supabase
+          .from("experienced_candidates")
+          .insert(rowsToInsert.slice(start, start + CHUNK));
+        if (candErr) throw new Error(`Failed to insert candidates: ${candErr.message}`);
+      }
+    }
+
+    for (const upd of rowsToUpdate) {
+      const { id, ...fields } = upd;
+      const { error: updErr } = await supabase
+        .from("experienced_candidates")
+        .update(fields)
+        .eq("id", id);
+      if (updErr) console.warn(`[update] candidate ${id} failed:`, updErr.message);
+    }
+
+    // Rebuild campaign_companies
+    const { error: delCompErr } = await supabase
+      .from("campaign_companies")
+      .delete()
+      .eq("campaign_id", campaignId);
+    if (delCompErr) console.warn("[delete] companies:", delCompErr.message);
+
+    const companyRows = [...companyResultMap.values()].map((c) => ({
+      campaign_id: campaignId,
+      apollo_org_id: c.apollo_org_id,
+      company_name: c.company_name,
+    }));
+
+    if (companyRows.length > 0) {
+      const CHUNK = 50;
+      for (let start = 0; start < companyRows.length; start += CHUNK) {
+        const { error: compErr } = await supabase
+          .from("campaign_companies")
+          .insert(companyRows.slice(start, start + CHUNK));
+        if (compErr) console.warn(`[insert] companies offset=${start}:`, compErr.message);
+      }
+    }
+
+    const totalCandidateCount = (existingForCampaign?.length ?? 0) + rowsToInsert.length;
+    await supabase
+      .from("campaigns")
+      .update({
+        status: "done",
+        candidate_count: totalCandidateCount,
+        company_count: companyResultMap.size,
+      })
+      .eq("id", campaignId);
+
+    return { candidateCount: totalCandidateCount, companyCount: companyResultMap.size };
+  } catch (err) {
+    console.error("[Company Search error]", err);
+    await supabase.from("campaigns").update({ status: "error" }).eq("id", campaignId);
+    throw err;
+  }
+}
+
+export const searchCompanyCandidatesFn = createServerFn({ method: "POST" })
+  .validator(z.object({ campaignId: z.string().min(1) }))
+  .handler(async ({ data }) => runCompanySearch(data.campaignId));

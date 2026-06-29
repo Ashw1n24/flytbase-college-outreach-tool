@@ -20,15 +20,7 @@ import {
   UNIVERSITIES,
   DEGREES,
   BRANCHES,
-  COMPETITION_CATEGORIES,
-  COMPETITIONS_BY_CATEGORY,
-  RESULT_TIERS,
-  POR_CATEGORIES,
-  ORGANISATIONS,
   SOURCES,
-  type CompetitionCategory,
-  type PorCategory,
-  type ResultTier,
   type CandidateSource,
 } from "@/data/talent";
 import { ROLE_FIT_STYLE, type RoleFitLabel } from "@/lib/utils/rolefit";
@@ -84,25 +76,8 @@ export function FilterPanel() {
   const degrees = filters.degrees ?? [];
   const branches = filters.branches ?? [];
 
-  const builderOn = Boolean(filters.has_competition);
-  const categories = filters.competition_categories ?? [];
-  const competitions = filters.competition_names ?? [];
-  const tiers = filters.result_tiers ?? [];
-  const compYears: [number, number] = [
-    filters.comp_year_min ?? 2020,
-    filters.comp_year_max ?? CURRENT_YEAR,
-  ];
-
-  const agencyOn = Boolean(filters.has_por);
-  const porCats = filters.por_categories ?? [];
-  const orgs = filters.por_orgs ?? [];
-  const leadOnly = Boolean(filters.por_leadership_only);
-  const porYears: [number, number] = [
-    filters.por_year_min ?? 2019,
-    filters.por_year_max ?? CURRENT_YEAR,
-  ];
-
   const sources = (filters.sources ?? []) as CandidateSource[];
+  const hasEmail = Boolean(filters.has_email);
   const roleFitLabels = (filters.role_fit_labels ?? []) as RoleFitLabel[];
   const cultureFitTiers = (filters.culture_fit_tiers ?? []) as CultureTier[];
 
@@ -110,17 +85,7 @@ export function FilterPanel() {
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
 
   const standardCount =
-    (name ? 1 : 0) + universities.length + degrees.length + branches.length + sources.length;
-  const builderCount =
-    (builderOn ? 1 : 0) + categories.length + competitions.length + tiers.length;
-  const agencyCount =
-    (agencyOn ? 1 : 0) + porCats.length + orgs.length + (leadOnly ? 1 : 0);
-
-  const allCompetitions = (
-    categories.length
-      ? categories
-      : (Object.keys(COMPETITIONS_BY_CATEGORY) as CompetitionCategory[])
-  ).flatMap((c) => COMPETITIONS_BY_CATEGORY[c]);
+    (name ? 1 : 0) + universities.length + degrees.length + branches.length + sources.length + (hasEmail ? 1 : 0);
 
   return (
     <aside className="sticky top-14 flex h-[calc(100vh-3.5rem)] w-80 shrink-0 flex-col border-r border-border bg-card">
@@ -219,9 +184,56 @@ export function FilterPanel() {
           </div>
         </div>
 
+        <div className="space-y-2 border-b border-border px-4 py-3">
+          <div className="flex items-center justify-between">
+            <SectionLabel>Source</SectionLabel>
+            {sources.length > 0 && (
+              <button
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+                onClick={() => updateFilter("sources", [])}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <ToggleGroup
+            type="multiple"
+            value={sources}
+            onValueChange={(v) =>
+              updateFilter("sources", v as CandidateSource[])
+            }
+            className="flex flex-wrap gap-1.5"
+          >
+            {SOURCES.map((s) => (
+              <ToggleGroupItem
+                key={s.value}
+                value={s.value}
+                className="h-7 border border-border px-2.5 text-xs data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
+              >
+                {s.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          {sources.length === 0 && (
+            <p className="text-[10px] text-muted-foreground">
+              All sources shown. Select to filter.
+            </p>
+          )}
+
+          <label className="flex items-center justify-between gap-2 rounded-md bg-muted px-2.5 py-2">
+            <span className="text-xs font-medium leading-tight">
+              Has email
+            </span>
+            <Switch
+              checked={hasEmail}
+              onCheckedChange={(v) => updateFilter("has_email", v)}
+            />
+          </label>
+        </div>
+
         <Accordion
           type="multiple"
-          defaultValue={["standard", "builder", "agency"]}
+          defaultValue={["standard"]}
           className="px-2"
         >
           <AccordionItem value="standard" className="border-b border-border">
@@ -299,239 +311,6 @@ export function FilterPanel() {
                   placeholder="Any branch"
                   searchable={false}
                 />
-              </div>
-
-              <div className="space-y-1.5">
-                <SectionLabel>Source</SectionLabel>
-                <ToggleGroup
-                  type="multiple"
-                  value={sources}
-                  onValueChange={(v) =>
-                    updateFilter("sources", v as CandidateSource[])
-                  }
-                  className="flex flex-wrap gap-1.5"
-                >
-                  {SOURCES.map((s) => (
-                    <ToggleGroupItem
-                      key={s.value}
-                      value={s.value}
-                      className="h-7 border border-border px-2.5 text-xs data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-                    >
-                      {s.label}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-                {sources.length === 0 && (
-                  <p className="text-[10px] text-muted-foreground">
-                    All sources shown. Select to filter.
-                  </p>
-                )}
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-
-          <AccordionItem value="builder" className="border-b border-border">
-            <AccordionTrigger className="px-2 py-3 text-sm font-medium hover:no-underline">
-              <span className="flex items-center">
-                Builder Filters
-                <CountBadge n={builderCount} />
-              </span>
-            </AccordionTrigger>
-            <AccordionContent className="space-y-4 px-2 pb-4">
-              <label className="flex items-center justify-between gap-2 rounded-md bg-muted px-2.5 py-2">
-                <span className="text-xs font-medium leading-tight">
-                  Has competed in a tracked competition
-                </span>
-                <Switch
-                  checked={builderOn}
-                  onCheckedChange={(v) => updateFilter("has_competition", v)}
-                />
-              </label>
-
-              <div
-                className={cn(
-                  "space-y-4 transition-opacity",
-                  !builderOn && "pointer-events-none opacity-50",
-                )}
-              >
-                <div className="space-y-1.5">
-                  <SectionLabel>Category</SectionLabel>
-                  <ToggleGroup
-                    type="multiple"
-                    value={categories}
-                    onValueChange={(v) =>
-                      updateFilter(
-                        "competition_categories",
-                        v as CompetitionCategory[],
-                      )
-                    }
-                    className="grid grid-cols-2 gap-1.5"
-                  >
-                    {COMPETITION_CATEGORIES.map((c) => (
-                      <ToggleGroupItem
-                        key={c.value}
-                        value={c.value}
-                        className="h-7 border border-border text-xs data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-                      >
-                        {c.label}
-                      </ToggleGroupItem>
-                    ))}
-                  </ToggleGroup>
-                </div>
-
-                <div className="space-y-1.5">
-                  <SectionLabel>Specific Competition</SectionLabel>
-                  <MultiSelect
-                    options={allCompetitions}
-                    selected={competitions}
-                    onChange={(v) => updateFilter("competition_names", v)}
-                    placeholder="Any competition"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <SectionLabel>Result Tier</SectionLabel>
-                  <div className="space-y-1">
-                    {RESULT_TIERS.map((t) => (
-                      <label key={t.value} className="flex items-center gap-2 text-xs">
-                        <Checkbox
-                          checked={tiers.includes(t.value)}
-                          onCheckedChange={() =>
-                            updateFilter(
-                              "result_tiers",
-                              toggle(tiers, t.value) as ResultTier[],
-                            )
-                          }
-                        />
-                        {t.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <SectionLabel>Year Range</SectionLabel>
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {compYears[0]} – {compYears[1]}
-                    </span>
-                  </div>
-                  <Slider
-                    min={2015}
-                    max={CURRENT_YEAR}
-                    step={1}
-                    value={compYears}
-                    onValueChange={(v) =>
-                      updateFilters({
-                        comp_year_min: v[0],
-                        comp_year_max: v[1],
-                      })
-                    }
-                  />
-                </div>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-
-          <AccordionItem value="agency" className="border-b-0">
-            <AccordionTrigger className="px-2 py-3 text-sm font-medium hover:no-underline">
-              <span className="flex items-center">
-                Agency Filters
-                <CountBadge n={agencyCount} />
-              </span>
-            </AccordionTrigger>
-            <AccordionContent className="space-y-4 px-2 pb-4">
-              <label className="flex items-center justify-between gap-2 rounded-md bg-muted px-2.5 py-2">
-                <span className="text-xs font-medium leading-tight">
-                  Has held at least one tracked PoR
-                </span>
-                <Switch
-                  checked={agencyOn}
-                  onCheckedChange={(v) => updateFilter("has_por", v)}
-                />
-              </label>
-
-              <div
-                className={cn(
-                  "space-y-4 transition-opacity",
-                  !agencyOn && "pointer-events-none opacity-50",
-                )}
-              >
-                <div className="space-y-1.5">
-                  <SectionLabel>PoR Category</SectionLabel>
-                  <div className="space-y-1">
-                    {POR_CATEGORIES.map((p) => (
-                      <label key={p.value} className="flex items-center gap-2 text-xs">
-                        <Checkbox
-                          checked={porCats.includes(p.value)}
-                          onCheckedChange={() =>
-                            updateFilter(
-                              "por_categories",
-                              toggle(porCats, p.value) as PorCategory[],
-                            )
-                          }
-                        />
-                        {p.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <SectionLabel>Organisation</SectionLabel>
-                  <MultiSelect
-                    options={ORGANISATIONS}
-                    selected={orgs}
-                    onChange={(v) => updateFilter("por_orgs", v)}
-                    placeholder="Any organisation"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <SectionLabel>Leadership Level</SectionLabel>
-                  <ToggleGroup
-                    type="single"
-                    value={leadOnly ? "lead" : "any"}
-                    onValueChange={(v) =>
-                      updateFilter("por_leadership_only", v === "lead")
-                    }
-                    className="grid grid-cols-2 gap-1.5"
-                  >
-                    <ToggleGroupItem
-                      value="any"
-                      className="h-7 border border-border text-xs data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-                    >
-                      Any Role
-                    </ToggleGroupItem>
-                    <ToggleGroupItem
-                      value="lead"
-                      className="h-7 border border-border text-xs data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-                    >
-                      Core / Lead only
-                    </ToggleGroupItem>
-                  </ToggleGroup>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <SectionLabel>Year Active</SectionLabel>
-                    <span className="text-xs tabular-nums text-muted-foreground">
-                      {porYears[0]} – {porYears[1]}
-                    </span>
-                  </div>
-                  <Slider
-                    min={2015}
-                    max={CURRENT_YEAR}
-                    step={1}
-                    value={porYears}
-                    onValueChange={(v) =>
-                      updateFilters({
-                        por_year_min: v[0],
-                        por_year_max: v[1],
-                      })
-                    }
-                  />
-                </div>
               </div>
             </AccordionContent>
           </AccordionItem>

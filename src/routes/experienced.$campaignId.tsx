@@ -41,6 +41,7 @@ import {
   getCampaignCompaniesFn,
   getCampaignCandidatesFn,
   searchExperiencedCandidatesFn,
+  searchCompanyCandidatesFn,
 } from "@/lib/api/experienced.functions";
 import {
   addToOutreachQueueFn,
@@ -1459,9 +1460,15 @@ function CampaignDetail() {
       staleTime: 30_000,
     });
 
+  const isCompanyCampaign = (campaign as unknown as Record<string, unknown>)?.type === "company_targeted";
+
   const { mutate: runSearch, isPending: triggeringSearch, error: searchError } = useMutation({
-    mutationFn: (maxResults: number) =>
-      searchExperiencedCandidatesFn({ data: { campaignId, maxResults } }),
+    mutationFn: async (maxResults: number) => {
+      if ((campaign as unknown as Record<string, unknown>)?.type === "company_targeted") {
+        return searchCompanyCandidatesFn({ data: { campaignId } });
+      }
+      return searchExperiencedCandidatesFn({ data: { campaignId, maxResults } });
+    },
     onSuccess: () => {
       setRunDialogOpen(false);
       refetchCampaign();
@@ -1506,6 +1513,10 @@ function CampaignDetail() {
     (campaign as unknown as Record<string, unknown>)?.jd_raw as string ?? "";
   const candidateCount =
     (campaign as unknown as Record<string, unknown>)?.candidate_count as number ?? 0;
+  const targetCompanyIds: string[] =
+    ((campaign as unknown as Record<string, unknown>)?.target_company_ids as string[]) ?? [];
+  const targetTags: string[] =
+    ((campaign as unknown as Record<string, unknown>)?.target_tags as string[]) ?? [];
   // Derive from the live query, not the stale campaign.company_count field
   const companyCount = companiesLoading ? 0 : companies.length;
 
@@ -1564,7 +1575,15 @@ function CampaignDetail() {
                     variant="outline"
                     size="sm"
                     className="h-8 gap-1.5 text-xs shrink-0"
-                    onClick={() => setRunDialogOpen(true)}
+                    onClick={() => {
+                      if (isCompanyCampaign) {
+                        // Company campaigns have no slider — confirm immediately
+                        setCandidateView(null);
+                        runSearch(100);
+                      } else {
+                        setRunDialogOpen(true);
+                      }
+                    }}
                     disabled={triggeringSearch}
                   >
                     <RefreshCw
@@ -1574,6 +1593,33 @@ function CampaignDetail() {
                   </Button>
                 )}
               </div>
+
+              {/* Company campaign indicator */}
+              {isCompanyCampaign && (
+                <div className="rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 px-4 py-2.5 flex items-center gap-2.5 text-xs">
+                  <Building2 className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span className="text-amber-800 dark:text-amber-300 font-medium">
+                    Company-targeted search
+                  </span>
+                  {targetCompanyIds.length > 0 && (
+                    <span className="text-amber-700 dark:text-amber-400">
+                      · {targetCompanyIds.length} compan{targetCompanyIds.length === 1 ? "y" : "ies"} targeted
+                    </span>
+                  )}
+                  {targetTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 ml-1">
+                      {targetTags.slice(0, 5).map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0 text-[10px] text-amber-700 dark:text-amber-400"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* JD summary */}
               {jdRaw && (

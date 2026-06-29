@@ -60,9 +60,9 @@ const SORT_OPTIONS = [
     sort_dir: "desc" as const,
   },
   {
-    label: "Email (available)",
-    sort_by: "email" as const,
-    sort_dir: "asc" as const,
+    label: "Recent",
+    sort_by: "created_at" as const,
+    sort_dir: "desc" as const,
   },
 ];
 

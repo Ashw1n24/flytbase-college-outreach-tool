@@ -23,6 +23,7 @@ function computeActiveFilterCount(filters: SearchParams): number {
   if (filters.sources?.length) count += filters.sources.length;
   if (filters.role_fit_labels?.length) count += filters.role_fit_labels.length;
   if (filters.culture_fit_tiers?.length) count += filters.culture_fit_tiers.length;
+  if (filters.has_email) count += 1;
   if (filters.has_competition) count += 1;
   if (filters.competition_categories?.length) {
     count += filters.competition_categories.length;

@@ -219,12 +219,49 @@ export const getApifyCreditsFn = createServerFn({ method: "GET" }).handler(async
   }
 });
 
+async function checkUnipile() {
+  const t = Date.now();
+  const dsn   = process.env.UNIPILE_DSN;
+  const token = process.env.UNIPILE_ACCESS_TOKEN;
+  const accountId = process.env.UNIPILE_LINKEDIN_ACCOUNT_ID;
+
+  if (!dsn || !token || !accountId) {
+    return {
+      id: "unipile",
+      name: "Unipile (LinkedIn)",
+      status: "warn" as const,
+      latencyMs: 0,
+      detail: "UNIPILE_DSN / UNIPILE_ACCESS_TOKEN / UNIPILE_LINKEDIN_ACCOUNT_ID not configured",
+    };
+  }
+  try {
+    const { checkUnipileAccount } = await import("@/lib/unipile.server");
+    const result = await checkUnipileAccount();
+    return {
+      id: "unipile",
+      name: "Unipile (LinkedIn)",
+      status: result.ok ? ("ok" as const) : ("fail" as const),
+      latencyMs: Date.now() - t,
+      detail: result.detail,
+    };
+  } catch (e) {
+    return {
+      id: "unipile",
+      name: "Unipile (LinkedIn)",
+      status: "fail" as const,
+      latencyMs: Date.now() - t,
+      detail: String(e),
+    };
+  }
+}
+
 export const getSystemHealthFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<SystemHealth> => {
     const results = await Promise.allSettled([
       checkSupabase(),
       checkApify(),
       checkAnthropic(),
+      checkUnipile(),
     ]);
 
     const services: ServiceCheck[] = results.map((r) => {

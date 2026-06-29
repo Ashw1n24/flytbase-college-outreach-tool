@@ -48,6 +48,7 @@ const searchParamsSchema = z.object({
   grad_year_max: z.number().int().optional(),
   degrees: z.array(z.string()).optional(),
   branches: z.array(z.string()).optional(),
+  has_email: z.boolean().optional(),
   sources: z.array(candidateSourceSchema).optional(),
   role_fit_labels: z.array(z.enum([
     "Agentic AI Engineer",
@@ -73,7 +74,7 @@ const searchParamsSchema = z.object({
   por_year_max: z.number().int().optional(),
   page: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).max(100).optional(),
-  sort_by: z.enum(["name", "graduation_year", "competition_count", "culture_score", "email"]).optional(),
+  sort_by: z.enum(["name", "graduation_year", "competition_count", "culture_score", "created_at"]).optional(),
   sort_dir: z.enum(["asc", "desc"]).optional(),
 });
 
