@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Users, Trash2, FolderKanban, Download, ExternalLink, Send } from "lucide-react";
+import { ArrowLeft, Users, Trash2, FolderKanban, Download, ExternalLink, Send, Pencil, Check, X } from "lucide-react";
 import { TopNav } from "@/components/talent/TopNav";
 import { Button } from "@/components/ui/button";
 import {
@@ -192,6 +192,8 @@ function PipelinesPage() {
     expMemberIds,
     removeFromPipeline,
     removeFromExpPipeline,
+    deletePipeline,
+    renamePipeline,
     openDrawer,
   } = useTalent();
   const [active, setActive] = useState(
@@ -199,6 +201,26 @@ function PipelinesPage() {
   );
   const [outreachOpen, setOutreachOpen] = useState(false);
   const [studentOutreachOpen, setStudentOutreachOpen] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  const startRename = (p: { id: string; name: string }) => {
+    setRenamingId(p.id);
+    setRenameValue(p.name);
+  };
+  const commitRename = () => {
+    if (renamingId && renameValue.trim()) renamePipeline(renamingId, renameValue.trim());
+    setRenamingId(null);
+  };
+  const handleDelete = (id: string) => {
+    const count = pipelineMemberCount(id);
+    const msg = count > 0
+      ? `Delete this pipeline and remove its ${count} candidate${count !== 1 ? "s" : ""}?`
+      : "Delete this pipeline?";
+    if (!confirm(msg)) return;
+    deletePipeline(id);
+    setActive(pipelines.find((p) => p.id !== id)?.id ?? "");
+  };
 
   const current = pipelines.find((p) => p.id === active) ?? pipelines[0];
   const studentIds = current ? pipelineMemberIds(current.id) : [];
@@ -295,20 +317,57 @@ function PipelinesPage() {
         <div className="mt-4 flex flex-wrap gap-2 border-b border-border pb-3">
           {pipelines.map((p) => {
             const count = pipelineMemberCount(p.id);
+            const isActive = current?.id === p.id;
+            const isRenaming = renamingId === p.id;
             return (
-              <button
+              <div
                 key={p.id}
-                onClick={() => setActive(p.id)}
                 className={cn(
-                  "flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors",
-                  current?.id === p.id
+                  "group flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors",
+                  isActive
                     ? "border-primary bg-accent text-accent-foreground"
                     : "border-border text-muted-foreground hover:bg-accent/50",
                 )}
               >
-                {p.name}
-                <span className="rounded bg-muted px-1.5 text-xs">{count}</span>
-              </button>
+                {isRenaming ? (
+                  <>
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingId(null); }}
+                      className="w-32 bg-transparent outline-none text-sm"
+                    />
+                    <button onClick={commitRename} className="text-ok hover:text-ok/80"><Check className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => setRenamingId(null)} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => setActive(p.id)} className="flex items-center gap-2">
+                      {p.name}
+                      <span className="rounded bg-muted px-1.5 text-xs">{count}</span>
+                    </button>
+                    {isActive && (
+                      <span className="flex items-center gap-0.5 ml-1">
+                        <button
+                          onClick={() => startRename(p)}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          title="Rename"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(p.id)}
+                          className="text-muted-foreground hover:text-destructive transition-colors"
+                          title="Delete pipeline"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
             );
           })}
         </div>
