@@ -851,27 +851,28 @@ function buildImagePrompt(parsed: Record<string, unknown>, roleTitle: string, im
     : `${roleTitle} at FlytBase — drone autonomy and Physical AI. ${responsib}`;
 
   return [
-    `Social recruiting image concept for a ${roleTitle} role at FlytBase.`,
-    seniority ? `Seniority context: ${seniority}.` : "",
-    `Department: ${department}.`,
-    skills ? `Key skills in the work: ${skills}.` : "",
+    `Pixel-art illustration of life and work at FlytBase, for a ${roleTitle} hiring campaign.`,
+    seniority ? `The role level/seniority is: ${seniority}.` : "",
+    `Department context: ${department}.`,
+    skills ? `Work involves: ${skills}.` : "",
     "",
     `VISUAL STYLE — follow these exactly:`,
-    style,
+    "16-bit pixel art, retro video game aesthetic, warm colour palette, " +
+    "blocky readable shapes, distinct outlines, nostalgic tech-office vibe. " +
+    "NO gradients, NO smooth shading, NO photos, NO 3D, NO cinematic blur.",
     "",
-    `CONTEXT FROM THE ROLE (use this as inspiration for what to show, NOT as text to render):`,
-    subject,
+    `SCENE CONTEXT — depict the FlytBase workplace and team for this role:` ,
+    hook ? `Mood/hook: ${hook}` : "",
+    responsib ? `What the role does: ${responsib}` : "",
     "",
-    `BRAND COLOURS—use these as major fills, not accents:`,
-    palette,
+    "Composition ideas: engineers at desks with multiple monitors showing drone " +
+    "telemetry, drone models on shelves, whiteboards with architecture diagrams, " +
+    "team meetings, coffee breaks, people collaborating, the office environment. " +
+    "Include subtle drone-autonomy and Physical AI details where possible.",
     "",
-    "Design a vertical card composition: abstract or illustrative " +
-    "visual in the centre, bold colour blocks, thick dark borders around " +
-    "every major section, flat graphic style.",
-    "",
-    "Critical rules: absolutely NO text, NO letters, NO numbers, NO words, " +
-    "NO glyphs, NO symbols that look like writing anywhere in the image. " +
-    "The image must be purely visual — icons, shapes, abstract patterns only.",
+    "Text handling: if the scene needs a hiring call-to-action, use a retro " +
+    "pixel-font headline such as 'WE'RE HIRING!' or the role title. " +
+    "Keep all rendered text short, simple, and legible — ideally one line only.",
     "",
     "ADDITIONAL USER INSTRUCTIONS — follow these exactly:",
     imageInstructions || "none",
